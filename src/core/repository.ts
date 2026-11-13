@@ -21,6 +21,8 @@ export interface ListQuery {
 export type ChangeEvent =
   | { type: 'put'; collection: CollectionName; id: Id }
   | { type: 'delete'; collection: CollectionName; id: Id }
+  /** Many records changed at once (backup restore, import). Re-read the collection. */
+  | { type: 'bulk'; collection: CollectionName; count: number }
   | { type: 'settings' }
   | { type: 'profile' }
   | { type: 'reset' };
@@ -51,6 +53,15 @@ export interface Repository {
   remove(collection: CollectionName, id: Id): Promise<Result<void>>;
   /** Permanently delete records (user-requested data deletion). */
   purge(collection: CollectionName, ids: Id[]): Promise<void>;
+  /**
+   * Raw upsert that keeps the given ids, timestamps and schemaVersion (backup restore, imports
+   * of already-shaped records). Validates like `add`; all-or-nothing: if one record is invalid,
+   * nothing is written.
+   */
+  putMany<C extends CollectionName>(
+    collection: C,
+    records: CollectionMap[C][],
+  ): Promise<Result<number>>;
   /** Records whose `dedupeKey` is in `keys` (deleted included), for import de-duplication. */
   findByDedupeKeys<C extends CollectionName>(
     collection: C,

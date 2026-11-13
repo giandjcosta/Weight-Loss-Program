@@ -153,6 +153,40 @@ export function runRepositoryContract(
       expect((await repo.getSettings()).locale).toBe('it');
     });
 
+    it('putMany keeps ids and timestamps, and is all-or-nothing', async () => {
+      const repo = await makeRepo();
+      const a = await repo.add('weights', weight('2026-09-01', 80));
+      if (!a.ok) throw new Error('add failed');
+      const copy = { ...a.value, id: '11111111-1111-4111-8111-111111111111' as typeof a.value.id };
+      const bad = {
+        ...copy,
+        id: '22222222-2222-4222-8222-222222222222' as typeof a.value.id,
+        dayKey: 'nope' as DayKey,
+      };
+      const rejected = await repo.putMany('weights', [copy, bad]);
+      expect(rejected.ok).toBe(false);
+      expect(await repo.list('weights')).toHaveLength(1);
+      const accepted = await repo.putMany('weights', [copy]);
+      expect(accepted.ok && accepted.value).toBe(1);
+      const stored = await repo.get('weights', copy.id);
+      expect(stored?.createdAt).toBe(a.value.createdAt);
+      expect(stored?.updatedAt).toBe(a.value.updatedAt);
+    });
+
+    it('survives a listener that throws', async () => {
+      const repo = await makeRepo();
+      repo.subscribe(() => {
+        throw new Error('listener bug');
+      });
+      const errorSpy = console.error;
+      console.error = () => {};
+      try {
+        expect((await repo.add('weights', weight('2026-09-01', 80))).ok).toBe(true);
+      } finally {
+        console.error = errorSpy;
+      }
+    });
+
     it('declares honestly that data is not synced', async () => {
       const repo = await makeRepo();
       expect(repo.storage.synced).toBe(false);
