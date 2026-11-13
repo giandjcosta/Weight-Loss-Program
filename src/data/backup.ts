@@ -55,16 +55,14 @@ export type RecordMigrations = Record<
 >;
 export const RECORD_MIGRATIONS: RecordMigrations = {};
 
+/** Build a backup from ONE consistent snapshot of the device (`Repository.exportAll`). */
 export async function createBackup(
   repo: Repository,
   now: IsoDateTime = nowIso(),
 ): Promise<RitmeaBackup> {
-  const entries = await Promise.all(
-    COLLECTIONS.map(async (c) => [c, await repo.list(c, { includeDeleted: true })] as const),
-  );
-  const collections = Object.fromEntries(entries) as RitmeaBackup['collections'];
-  const containsDemoData = entries.some(([, rs]) =>
-    (rs as AnyRecord[]).some((r) => r.source?.kind === 'demo'),
+  const snap = await repo.exportAll();
+  const containsDemoData = COLLECTIONS.some((c) =>
+    (snap.records[c] as AnyRecord[]).some((r) => r.source?.kind === 'demo'),
   );
   return {
     format: BACKUP_FORMAT,
@@ -73,9 +71,9 @@ export async function createBackup(
     schemaVersion: SCHEMA_VERSION,
     exportedAt: now,
     containsDemoData,
-    settings: await repo.getSettings(),
-    profile: await repo.getProfile(),
-    collections,
+    settings: snap.settings,
+    profile: snap.profile,
+    collections: snap.records,
   };
 }
 

@@ -102,7 +102,7 @@ describe('parseBackup safety', () => {
     const b = JSON.parse(await valid());
     b.collections.weights = [
       {
-        id: 'x',
+        id: '44444444-4444-4444-8444-444444444444',
         schemaVersion: 1,
         createdAt: '2026-09-01T08:00:00.000+02:00',
         updatedAt: '2026-09-01T08:00:00.000+02:00',
@@ -122,7 +122,7 @@ describe('parseBackup safety', () => {
     const b = JSON.parse(await valid());
     b.collections.water = [
       {
-        id: 'w1',
+        id: '55555555-5555-4555-8555-555555555555',
         schemaVersion: 0,
         createdAt: '2026-09-01T08:00:00.000+02:00',
         updatedAt: '2026-09-01T08:00:00.000+02:00',
@@ -255,5 +255,52 @@ describe('merge compares instants, not strings', () => {
     const res = await restoreBackup(device, backup, 'merge');
     expect(res.ok && res.value.updated).toBe(1);
     expect((await device.list('weights'))[0]?.kg).toBe(79.9);
+  });
+});
+
+describe('parseBackup: malformed records and profile enums (ChatGPT re-review list)', () => {
+  const withOneWeight = async () => {
+    const repo = createMemoryRepository();
+    await repo.add('weights', weight('2026-09-01', 80));
+    return JSON.parse(serializeBackup(await createBackup(repo)));
+  };
+  it.each([
+    ['weight without kg', (w: Json) => delete w.kg],
+    ['weight without dayKey', (w: Json) => delete w.dayKey],
+    ['weight without timeZone', (w: Json) => delete w.timeZone],
+    ['createdAt "abc"', (w: Json) => (w.createdAt = 'abc')],
+    ['updatedAt malformed', (w: Json) => (w.updatedAt = '2026-13-01T00:00:00Z')],
+    ['deletedAt invalid', (w: Json) => (w.deletedAt = 'yesterday')],
+    ['source.kind invalid', (w: Json) => (w.source = { kind: 'cloud' })],
+    ['source missing', (w: Json) => delete w.source],
+    ['schemaVersion string', (w: Json) => (w.schemaVersion = '1')],
+    ['schemaVersion 1.5', (w: Json) => (w.schemaVersion = 1.5)],
+    ['id not a UUID', (w: Json) => (w.id = 'abc')],
+    ['quality outside enum', (w: Json) => (w.quality = 'guess')],
+  ])('rejects %s', async (_n, mutate) => {
+    const b = await withOneWeight();
+    mutate(b.collections.weights[0]);
+    expect(parseBackup(JSON.stringify(b)).ok).toBe(false);
+  });
+
+  it.each([
+    ['sex value outside enum', (p: Json) => (p.sex = { kind: 'value', value: 'invalid' })],
+    [
+      'activityLevel outside enum',
+      (p: Json) => (p.activityLevel = { kind: 'value', value: 'extreme' }),
+    ],
+    ['birthYear not an integer', (p: Json) => (p.birthYear = { kind: 'value', value: 1990.5 })],
+  ])('rejects profile %s', async (_n, mutate) => {
+    const b = await withOneWeight();
+    mutate(b.profile);
+    expect(parseBackup(JSON.stringify(b)).ok).toBe(false);
+  });
+
+  it('saveProfile applies the same enum rules', async () => {
+    const repo = createMemoryRepository();
+    expect((await repo.saveProfile({ sex: { kind: 'value', value: 'invalid' } as never })).ok).toBe(
+      false,
+    );
+    expect((await repo.saveProfile({ sex: { kind: 'declined' } })).ok).toBe(true);
   });
 });

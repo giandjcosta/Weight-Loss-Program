@@ -51,6 +51,8 @@ export type ChangeEvent =
  * - `list` is sorted by day (or `effectiveFrom`) ascending, then `recordedAt`, then `createdAt`.
  * - `remove` is a soft delete; `purge` is the only hard delete.
  * - Every write is validated by `core/validation` (ranges, dates, cross-field consistency).
+ * - Write methods returning `Result` never throw on storage failures: quota → `repo.quota_exceeded`,
+ *   other failures → `repo.storage_unavailable`. `reset` and `purge` may reject.
  * - `goals` and `targets` are append-only: `update` accepts only `note`; change a goal by adding
  *   a new entry (see `core/history.ts`).
  * - Values are stored exactly as given: no rounding, no unit conversion, no zero-filling.
@@ -85,6 +87,15 @@ export interface Repository {
    * Used for backup restore (replace or merge) and imports.
    */
   commitBatch(batch: RepositoryBatch): Promise<Result<number>>;
+  /**
+   * Every record (soft-deleted included), settings and profile read in ONE consistent snapshot
+   * (single storage transaction) — the source for backups.
+   */
+  exportAll(): Promise<{
+    records: { [C in CollectionName]: CollectionMap[C][] };
+    settings: Settings;
+    profile: Profile;
+  }>;
   /** Records whose `dedupeKey` is in `keys` (deleted included), for import de-duplication. */
   findByDedupeKeys<C extends CollectionName>(
     collection: C,

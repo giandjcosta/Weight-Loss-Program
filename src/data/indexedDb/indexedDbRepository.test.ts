@@ -163,3 +163,75 @@ describe('atomic batches (crash safety)', () => {
     db.close();
   });
 });
+
+describe('a rejected backup changes nothing (IndexedDB, replace and merge)', () => {
+  it.each(['replace', 'merge'] as const)('%s', async (mode) => {
+    const { createBackup, restoreBackup } = await import('../backup');
+    const repo = await openIndexedDbRepository({ name: uniqueName() });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveSettings({ locale: 'en' });
+    await repo.saveProfile({ sex: { kind: 'declined' } }); // stored, so timestamps are stable
+    const before = await repo.exportAll();
+
+    // A backup object that skipped parseBackup (e.g. a future caller bug): one record lacks kg.
+    const backup = await createBackup(repo);
+    const bad = { ...backup.collections.weights[0]!, id: '66666666-6666-4666-8666-666666666666' };
+    delete (bad as { kg?: number }).kg;
+    backup.collections.weights.push(bad as never);
+    backup.settings = { ...backup.settings, locale: 'it' };
+
+    const res = await restoreBackup(repo, backup, mode);
+    expect(res.ok).toBe(false);
+    expect(await repo.exportAll()).toEqual(before);
+    repo.close();
+  });
+});
+
+describe('storage failures become Results, never a false "saved"', () => {
+  it('maps quota and generic failures', async () => {
+    const { createRepository } = await import('../createRepository');
+    const { createMemoryBackend } = await import('../memoryRepository');
+    for (const [errName, code] of [
+      ['QuotaExceededError', 'repo.quota_exceeded'],
+      ['UnknownError', 'repo.storage_unavailable'],
+    ] as const) {
+      const backend = createMemoryBackend();
+      const failing = {
+        ...backend,
+        put: async () => Promise.reject(new DOMException('x', errName)),
+      };
+      const repo = createRepository(failing);
+      const spy = console.error;
+      console.error = () => {};
+      try {
+        const res = await repo.add('weights', weight('2026-09-01', 80));
+        expect(!res.ok && res.error.code).toBe(code);
+      } finally {
+        console.error = spy;
+      }
+      expect(await repo.list('weights')).toHaveLength(0);
+    }
+  });
+
+  it('exportAll reads one consistent snapshot of records, settings and profile', async () => {
+    const repo = await openIndexedDbRepository({ name: uniqueName() });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveProfile({ sex: { kind: 'declined' } });
+    const snap = await repo.exportAll();
+    expect(snap.records.weights.map((w) => w.kg)).toEqual([80]);
+    expect(snap.profile.sex).toEqual({ kind: 'declined' });
+    expect(Object.keys(snap.records).sort()).toEqual([
+      'activity',
+      'bodyComposition',
+      'dayStatus',
+      'goals',
+      'imports',
+      'meals',
+      'targets',
+      'water',
+      'weights',
+      'workouts',
+    ]);
+    repo.close();
+  });
+});

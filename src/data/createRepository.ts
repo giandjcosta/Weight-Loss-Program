@@ -16,6 +16,7 @@ import {
   type Profile,
   type RecordMeta,
   type Repository,
+  type Result,
   type RepositoryBatch,
   validateFullProfile,
   validateFullSettings,
@@ -44,6 +45,25 @@ const APPEND_ONLY: Partial<Record<CollectionName, ReadonlySet<string>>> = {
   goals: new Set(['note']),
   targets: new Set(['note']),
 };
+
+/**
+ * Run a storage write and turn exceptions (quota, IndexedDB unavailable, aborted transaction)
+ * into a `Result`, so the UI can never show "saved" after a failed write.
+ */
+async function guarded(write: () => Promise<void>): Promise<Result<true>> {
+  try {
+    await write();
+    return ok(true);
+  } catch (error) {
+    console.error('Ritmea: storage write failed', error);
+    const name = (error as { name?: string } | null)?.name;
+    return err(
+      name === 'QuotaExceededError'
+        ? msg('repo.quota_exceeded', {})
+        : msg('repo.storage_unavailable', {}),
+    );
+  }
+}
 
 /** Builds the Repository on top of any StorageBackend. */
 export function createRepository(
@@ -102,7 +122,8 @@ export function createRepository(
       const record = { ...clone(input), ...meta } as unknown as CollectionMap[C];
       const full = validateStoredRecord(collection, record);
       if (!full.ok) return full;
-      await backend.put(collection, [record]);
+      const w = await guarded(() => backend.put(collection, [record]));
+      if (!w.ok) return w;
       emit({ type: 'put', collection, id: record.id });
       return ok(clone(record));
     },
@@ -122,7 +143,8 @@ export function createRepository(
       // validate the complete merged record: required fields, enums and cross-field rules
       const v = validateStoredRecord(collection, next);
       if (!v.ok) return v;
-      await backend.put(collection, [next]);
+      const w = await guarded(() => backend.put(collection, [next]));
+      if (!w.ok) return w;
       emit({ type: 'put', collection, id });
       return ok(clone(next)) as never;
     },
@@ -131,7 +153,10 @@ export function createRepository(
       const current = await backend.get(collection, id);
       if (!current || current.deletedAt) return err(msg('repo.not_found', { collection, id }));
       const t = now();
-      await backend.put(collection, [{ ...current, deletedAt: t, updatedAt: t } as AnyRecord]);
+      const w = await guarded(() =>
+        backend.put(collection, [{ ...current, deletedAt: t, updatedAt: t } as AnyRecord]),
+      );
+      if (!w.ok) return w;
       emit({ type: 'delete', collection, id });
       return ok(undefined);
     },
@@ -139,6 +164,22 @@ export function createRepository(
     async purge(collection, ids) {
       const deleted = await backend.delete(collection, ids);
       for (const id of deleted) emit({ type: 'delete', collection, id });
+    },
+
+    async exportAll() {
+      const snap = await backend.readAll();
+      const records = {} as Record<CollectionName, AnyRecord[]>;
+      for (const [c, rs] of Object.entries(snap.collections) as [CollectionName, AnyRecord[]][]) {
+        records[c] = [...rs].sort(compareRecords);
+      }
+      const base = defaultSettings(now());
+      const st = snap.meta.settings as Settings | undefined;
+      const pr = snap.meta.profile as Profile | undefined;
+      return clone({
+        records: records as { [C in CollectionName]: CollectionMap[C][] },
+        settings: st ? { ...base, ...st, units: { ...base.units, ...st.units } } : base,
+        profile: pr ? { ...defaultProfile(now()), ...pr } : defaultProfile(now()),
+      });
     },
 
     async putMany(collection, records) {
@@ -166,11 +207,14 @@ export function createRepository(
       if (batch.settings) meta.settings = clone(batch.settings);
       if (batch.profile) meta.profile = clone(batch.profile);
       if (count === 0 && !batch.replaceAll && !batch.settings && !batch.profile) return ok(0);
-      await backend.commit({
-        ...(batch.replaceAll ? { clearAll: true } : {}),
-        put: clone(batch.records) as Partial<Record<CollectionName, AnyRecord[]>>,
-        meta,
-      });
+      const w = await guarded(() =>
+        backend.commit({
+          ...(batch.replaceAll ? { clearAll: true } : {}),
+          put: clone(batch.records) as Partial<Record<CollectionName, AnyRecord[]>>,
+          meta,
+        }),
+      );
+      if (!w.ok) return w;
       if (batch.replaceAll) emit({ type: 'reset' });
       else {
         for (const [c, records] of Object.entries(batch.records) as [
@@ -204,7 +248,8 @@ export function createRepository(
         schemaVersion: SCHEMA_VERSION,
         updatedAt: now(),
       };
-      await backend.putMeta('settings', next);
+      const w = await guarded(() => backend.putMeta('settings', next));
+      if (!w.ok) return w;
       emit({ type: 'settings' });
       return ok(clone(next));
     },
@@ -220,7 +265,8 @@ export function createRepository(
         schemaVersion: SCHEMA_VERSION,
         updatedAt: now(),
       };
-      await backend.putMeta('profile', next);
+      const w = await guarded(() => backend.putMeta('profile', next));
+      if (!w.ok) return w;
       emit({ type: 'profile' });
       return ok(clone(next));
     },

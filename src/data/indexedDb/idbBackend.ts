@@ -127,6 +127,33 @@ export function createIndexedDbBackend(db: IDBDatabase, isPersistent = false): S
       t.objectStore(META_STORE).put(value, key);
       await done(t);
     },
+    async readAll() {
+      const names = [...db.objectStoreNames].filter((n) => n !== SNAPSHOT_STORE);
+      const t = tx(names, 'readonly');
+      const collections = {} as Record<CollectionName, AnyRecord[]>;
+      const meta: Partial<Record<MetaKey, unknown>> = {};
+      const reads: Promise<void>[] = [];
+      for (const n of names) {
+        const store = t.objectStore(n);
+        if (n === META_STORE) {
+          const keys = req(store.getAllKeys());
+          const values = req(store.getAll());
+          reads.push(
+            Promise.all([keys, values]).then(([k, v]) => {
+              k.forEach((key, i) => (meta[key as MetaKey] = v[i]));
+            }),
+          );
+        } else {
+          reads.push(
+            req(store.getAll()).then((rs) => {
+              collections[n as CollectionName] = rs as AnyRecord[];
+            }),
+          );
+        }
+      }
+      await Promise.all(reads);
+      return { collections, meta };
+    },
     async commit(batch) {
       const touched = new Set<string>([
         ...Object.keys(batch.put),

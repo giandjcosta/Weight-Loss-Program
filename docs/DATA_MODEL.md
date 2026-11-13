@@ -43,11 +43,13 @@ Changes to `src/core/**` need review from both agents (Claude + ChatGPT).
 
 `validateCompleteRecord` runs on `add`, `update` (merged record), `putMany`, `commitBatch` and backup parsing. On top of `validateRecord` it requires:
 
-- shared meta: `id`; integer `schemaVersion`; ISO `createdAt`/`updatedAt`/`deletedAt`; a known `source.kind`;
+- shared meta: a UUID `id`; `schemaVersion` equal to the current version (older backups are migrated first); ISO `createdAt`/`updatedAt`/`deletedAt`; a known `source.kind`;
 - `dayKey` and `timeZone` on dated collections;
 - each collection's own required fields and enums, e.g. weight `kg` and `quality`, meal `slot` and `quality`, workout `status`/`exercises`/`cardio`, goal `direction`/`setBy`, import `counts`.
 
-Untrusted input (backups, imports, untyped callers) therefore cannot store partial records. `validateRecord` alone stays permissive about omitted fields: it is the value-rule layer used for patches and forms.
+Untrusted input (backups, imports, untyped callers) therefore cannot store partial records. Profiles also check enum payloads (`sex`, `activityLevel`) and an integer `birthYear`.
+
+**Storage failures** in write methods that return `Result` are mapped to `repo.quota_exceeded` / `repo.storage_unavailable`. They are never thrown, and never reported as success. **Backups** read every store in one readonly transaction (`Repository.exportAll`), so the file is a consistent snapshot. `validateRecord` alone stays permissive about omitted fields: it is the value-rule layer used for patches and forms.
 
 ## Nutrition provenance
 

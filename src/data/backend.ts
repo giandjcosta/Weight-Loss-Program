@@ -29,6 +29,11 @@ export interface StorageBackend {
    * including the page or browser being killed midway — nothing of the batch is applied.
    */
   commit(batch: BackendBatch): Promise<void>;
+  /** Read every collection and meta in ONE consistent snapshot (single readonly transaction). */
+  readAll(): Promise<{
+    collections: Record<CollectionName, AnyRecord[]>;
+    meta: Partial<Record<MetaKey, unknown>>;
+  }>;
 }
 
 export interface BackendBatch {

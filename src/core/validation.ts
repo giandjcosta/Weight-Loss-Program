@@ -216,9 +216,29 @@ export function validateProfile(p: Partial<Profile>): Result<true> {
   const value = (a: unknown) => (isObj(a) && a.kind === 'value' ? (a.value as unknown) : undefined);
   const check = (field: string, v: unknown, range: RangeKey, unit: string) =>
     v === undefined ? ok<true>(true) : num({ [field]: v }, field, range, unit);
+  const enumAnswer = (field: string, a: unknown, values: readonly string[]) => {
+    if (a === undefined) return ok<true>(true);
+    if (!isObj(a) || !['value', 'unknown', 'not_measured', 'declined'].includes(String(a.kind))) {
+      return inconsistent(field);
+    }
+    return a.kind !== 'value' || oneOf(a.value, values) ? ok<true>(true) : inconsistent(field);
+  };
   return all(
     () => check('heightCm', value(p.heightCm), 'heightCm', 'cm'),
     () => check('birthYear', value(p.birthYear), 'birthYear', ''),
+    () =>
+      isObj(p.birthYear) && p.birthYear.kind === 'value' && !Number.isInteger(p.birthYear.value)
+        ? inconsistent('birthYear')
+        : ok<true>(true),
+    () => enumAnswer('sex', p.sex, ['female', 'male', 'other']),
+    () =>
+      enumAnswer('activityLevel', p.activityLevel, [
+        'sedentary',
+        'light',
+        'moderate',
+        'active',
+        'very_active',
+      ]),
   );
 }
 
@@ -278,6 +298,7 @@ const MEAL_QUALITY = ['verified', 'estimated', 'imported'] as const;
 const COMPLETENESS = ['unknown', 'unlogged', 'partial', 'complete'] as const;
 
 const isStr = (v: unknown) => typeof v === 'string' && v.length > 0;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
 
 /** Required fields per collection (beyond the shared record meta). */
@@ -344,10 +365,9 @@ export function validateCompleteRecord(collection: CollectionName, record: unkno
   if (!isObj(record)) return inconsistent('record');
   const r = record;
   const missing: string[] = [];
-  if (!isStr(r.id)) missing.push('id');
-  if (typeof r.schemaVersion !== 'number' || !Number.isInteger(r.schemaVersion)) {
-    missing.push('schemaVersion');
-  }
+  if (!isStr(r.id) || !UUID.test(r.id as string)) missing.push('id');
+  // stored records are always at the current version (older backups are migrated first)
+  if (r.schemaVersion !== SCHEMA_VERSION) missing.push('schemaVersion');
   for (const k of ['createdAt', 'updatedAt'] as const) {
     if (typeof r[k] !== 'string' || !parseIsoDateTime(r[k] as string)) missing.push(k);
   }
