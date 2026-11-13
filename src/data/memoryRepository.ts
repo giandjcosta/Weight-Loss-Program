@@ -60,6 +60,29 @@ export function createMemoryBackend(
       tables = empty();
       metaStore = new Map();
     },
+    async readAll() {
+      return {
+        collections: Object.fromEntries(
+          [...tables].map(([c, t]) => [c, [...t.values()].map((r) => clone(r))]),
+        ) as Record<CollectionName, AnyRecord[]>,
+        meta: Object.fromEntries([...metaStore].map(([k, v]) => [k, clone(v)])),
+      };
+    },
+    async commit(batch) {
+      // build the next state on copies, then swap: nothing changes if cloning throws
+      const nextTables = batch.clearAll
+        ? empty()
+        : new Map([...tables].map(([c, t]) => [c, new Map(t)]));
+      const nextMeta = batch.clearAll ? new Map<MetaKey, unknown>() : new Map(metaStore);
+      for (const [c, records] of Object.entries(batch.put) as [CollectionName, AnyRecord[]][]) {
+        for (const r of records) nextTables.get(c)!.set(r.id, clone(r));
+      }
+      for (const [k, v] of Object.entries(batch.meta ?? {}) as [MetaKey, unknown][]) {
+        nextMeta.set(k, clone(v));
+      }
+      tables = nextTables;
+      metaStore = nextMeta;
+    },
   };
 }
 

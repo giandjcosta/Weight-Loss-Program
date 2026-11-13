@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ritmea storage harness (test only)</title>
+  </head>
+  <body>
+    <p id="status">loading</p>
+    <script type="module">
+      // Test-only page served by the Vite dev server; never part of the production build.
+      import { openIndexedDbRepository } from '/src/data/indexedDb/indexedDbRepository.ts';
+      import {
+        createBackup,
+        parseBackup,
+        restoreBackup,
+        serializeBackup,
+      } from '/src/data/backup.ts';
+      const name = new URLSearchParams(location.search).get('db') ?? 'ritmea-e2e';
+      window.ritmea = {
+        repo: await openIndexedDbRepository({ name }),
+        createBackup,
+        parseBackup,
+        restoreBackup,
+        serializeBackup,
+      };
+      document.getElementById('status').textContent = 'ready';
+    </script>
+  </body>
+</html>

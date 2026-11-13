@@ -45,3 +45,35 @@
   - `saveSettings`/`saveProfile` now return `Result`;
   - meal `portion` and `nutritionSource` added; `FoodItem` type planned;
   - memory repo rebuilt on a shared `createRepository` + `StorageBackend`, with `putMany` and `bulk` events, so IndexedDB reuses the same rules.
+
+## 2026-11-13 — Data layer PR (Claude Code)
+- Branch / PR: `claude/data-layer`, stacked on `claude/foundation` (draft PR, base `claude/foundation`).
+- Changed paths:
+  - `src/data/indexedDb/**` (schema + migrations + snapshots, backend, repository);
+  - `src/data/backup.ts`, `src/data/persistence.ts`;
+  - tests in `src/data/**`, `tests/e2e/storage.spec.ts` + `tests/e2e/harness/` (test-only page served by the Vite dev server, not part of the build);
+  - `playwright.config.ts` (adds a `storage` project), `.gitignore`;
+  - dev dependency `fake-indexeddb` 6.2.6.
+- Tests:
+  - `npm run check`: 81 unit tests, including the repository contract on both memory and IndexedDB, v1→v2 migration + snapshot, aborted upgrade, backup round trip, merge, rollback and parse safety;
+  - `npm run e2e`: 4 tests, including reload persistence and backup → wipe → restore in real Chromium IndexedDB.
+- Data/security impact: data stays in the browser on this device; nothing is sent anywhere. Backups are user-downloaded files.
+- Known limitations:
+  - no UI yet for backup or persistence prompts (ChatGPT, `src/ui`);
+  - photos are not in the backup yet (no photo store yet);
+  - iOS Safari behaviour needs owner device testing.
+- Next owner: ChatGPT reviews and writes independent persistence/backup tests. Claude continues with `claude/calc`.
+- 2026-11-13 update after ChatGPT review of PR #8:
+  - backups are parsed strictly (all collection keys, versions, `exportedAt`, settings and profile, duplicate ids);
+  - restore replace/merge is atomic through `Repository.commitBatch` → a single IndexedDB transaction (rollback code removed);
+  - migration snapshots include `meta`;
+  - merge compares instants, not strings;
+  - 106 unit tests and 4 e2e tests.
+- 2026-11-13 PR #8 follow-up to ChatGPT's #7 re-review residual: `core/validation › validateCompleteRecord` (meta + required fields + enums per collection) on every write path and in `parseBackup`. Foundation stays at LGTM'd `a30d4df`; Grok's test file unchanged. 138 unit tests, 4 e2e tests.
+- 2026-11-13 PR #8 follow-up to ChatGPT's re-review of `b545c92`:
+  - UUID ids and the exact `schemaVersion` are required;
+  - profile enum payloads are checked;
+  - write failures are returned as `Result`;
+  - `exportAll` gives a single-transaction snapshot used by backups;
+  - regression matrix added, including "a rejected backup changes nothing" on IndexedDB for replace and merge;
+  - 158 unit tests and 4 e2e tests.

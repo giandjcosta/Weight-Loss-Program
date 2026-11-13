@@ -1,0 +1,237 @@
+import 'fake-indexeddb/auto';
+import { describe, expect, it } from 'vitest';
+import type { DayKey, TimeZone } from '../../core';
+import { runRepositoryContract } from '../repositoryContract';
+import { openIndexedDbRepository } from './indexedDbRepository';
+import { createIndexedDbBackend, listMigrationSnapshots, openDatabase } from './idbBackend';
+import { MIGRATIONS } from './schema';
+
+let n = 0;
+const uniqueName = () => `ritmea-test-${Date.now()}-${++n}`;
+
+runRepositoryContract('indexeddb', () => openIndexedDbRepository({ name: uniqueName() }));
+
+const tz = 'Europe/Rome' as TimeZone;
+const weight = (dayKey: string, kg: number) => ({
+  dayKey: dayKey as DayKey,
+  timeZone: tz,
+  kg,
+  quality: 'measured' as const,
+  source: { kind: 'manual' as const },
+});
+
+describe('IndexedDB persistence', () => {
+  it('keeps records, settings and profile after closing and reopening', async () => {
+    const name = uniqueName();
+    const a = await openIndexedDbRepository({ name });
+    await a.add('weights', weight('2026-09-01', 80.2));
+    await a.saveSettings({ locale: 'en', units: { weight: 'lb' } as never });
+    await a.saveProfile({ heightCm: { kind: 'value', value: 170 } });
+    a.close();
+
+    const b = await openIndexedDbRepository({ name });
+    expect((await b.list('weights')).map((w) => w.kg)).toEqual([80.2]);
+    const s = await b.getSettings();
+    expect(s.locale).toBe('en');
+    expect(s.units.weight).toBe('lb');
+    expect(s.units.length).toBe('cm'); // partial unit patch merged, not replaced
+    expect((await b.getProfile()).heightCm).toEqual({ kind: 'value', value: 170 });
+    b.close();
+  });
+
+  it('uses separate databases for separate names (demo never mixes with real data)', async () => {
+    const real = await openIndexedDbRepository({ name: uniqueName() });
+    const demo = await openIndexedDbRepository({ name: uniqueName() });
+    await demo.add('weights', weight('2026-09-01', 88));
+    expect(await real.list('weights')).toHaveLength(0);
+    real.close();
+    demo.close();
+  });
+});
+
+describe('IndexedDB migrations', () => {
+  it('upgrades v1 → v2, transforms records and keeps a pre-migration snapshot', async () => {
+    const name = uniqueName();
+    const v1 = await openIndexedDbRepository({ name });
+    await v1.add('weights', weight('2026-09-01', 80));
+    await v1.add('weights', weight('2026-09-02', 79.6));
+    v1.close();
+
+    const db = await openDatabase({
+      name,
+      version: 2,
+      migrations: {
+        ...MIGRATIONS,
+        2: ({ tx }) => {
+          const store = tx.objectStore('weights');
+          store.createIndex('dayKey', 'dayKey');
+          const cursorReq = store.openCursor();
+          cursorReq.onsuccess = () => {
+            const cursor = cursorReq.result;
+            if (!cursor) return;
+            cursor.update({ ...cursor.value, note: 'migrated' });
+            cursor.continue();
+          };
+        },
+      },
+    });
+    const all = await new Promise<{ note?: string; kg: number }[]>((resolve) => {
+      const r = db.transaction('weights').objectStore('weights').getAll();
+      r.onsuccess = () => resolve(r.result);
+    });
+    expect(all.map((w) => [w.kg, w.note])).toEqual(
+      expect.arrayContaining([
+        [80, 'migrated'],
+        [79.6, 'migrated'],
+      ]),
+    );
+    expect(db.transaction('weights').objectStore('weights').indexNames.contains('dayKey')).toBe(
+      true,
+    );
+    const snaps = await listMigrationSnapshots(db);
+    expect(snaps[0]?.takenAtVersion).toBe(1);
+    expect((snaps[0]?.data.weights as { note?: string }[]).every((w) => w.note === undefined)).toBe(
+      true,
+    );
+    db.close();
+  });
+
+  it('aborts a failing upgrade without touching existing data', async () => {
+    const name = uniqueName();
+    const v1 = await openIndexedDbRepository({ name });
+    await v1.add('weights', weight('2026-09-01', 80));
+    v1.close();
+
+    await expect(
+      openDatabase({
+        name,
+        version: 2,
+        migrations: {
+          ...MIGRATIONS,
+          2: () => {
+            throw new Error('boom');
+          },
+        },
+      }),
+    ).rejects.toThrow();
+
+    const again = await openIndexedDbRepository({ name }); // still version 1
+    expect((await again.list('weights')).map((w) => w.kg)).toEqual([80]);
+    again.close();
+  });
+
+  it('refuses to open when a migration step is missing', async () => {
+    await expect(
+      openDatabase({ name: uniqueName(), version: 3, migrations: MIGRATIONS }),
+    ).rejects.toThrow(/Missing IndexedDB migration/);
+  });
+});
+
+describe('atomic batches (crash safety)', () => {
+  it('a failing replace batch leaves every store, settings included, untouched', async () => {
+    const name = uniqueName();
+    const repo = await openIndexedDbRepository({ name });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveSettings({ locale: 'en' });
+    const db = await openDatabase({ name });
+    const backend = createIndexedDbBackend(db);
+    const [existing] = await repo.list('weights');
+    // a non-cloneable value makes IndexedDB throw mid-transaction (like a storage failure)
+    const poisoned = { ...existing!, id: 'p1', note: () => 'not cloneable' } as never;
+    await expect(
+      backend.commit({
+        clearAll: true,
+        put: { weights: [existing!, poisoned] },
+        meta: { settings: {} },
+      }),
+    ).rejects.toBeDefined();
+    expect((await repo.list('weights')).map((w) => w.kg)).toEqual([80]);
+    expect((await repo.getSettings()).locale).toBe('en');
+    db.close();
+    repo.close();
+  });
+
+  it('migration snapshots include settings and profile (meta store)', async () => {
+    const name = uniqueName();
+    const v1 = await openIndexedDbRepository({ name });
+    await v1.saveSettings({ locale: 'en' });
+    v1.close();
+    const db = await openDatabase({ name, version: 2, migrations: { ...MIGRATIONS, 2: () => {} } });
+    const [snap] = await listMigrationSnapshots(db);
+    const meta = snap?.data.meta as { key: string; value: { locale?: string } }[];
+    expect(meta.find((m) => m.key === 'settings')?.value.locale).toBe('en');
+    db.close();
+  });
+});
+
+describe('a rejected backup changes nothing (IndexedDB, replace and merge)', () => {
+  it.each(['replace', 'merge'] as const)('%s', async (mode) => {
+    const { createBackup, restoreBackup } = await import('../backup');
+    const repo = await openIndexedDbRepository({ name: uniqueName() });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveSettings({ locale: 'en' });
+    await repo.saveProfile({ sex: { kind: 'declined' } }); // stored, so timestamps are stable
+    const before = await repo.exportAll();
+
+    // A backup object that skipped parseBackup (e.g. a future caller bug): one record lacks kg.
+    const backup = await createBackup(repo);
+    const bad = { ...backup.collections.weights[0]!, id: '66666666-6666-4666-8666-666666666666' };
+    delete (bad as { kg?: number }).kg;
+    backup.collections.weights.push(bad as never);
+    backup.settings = { ...backup.settings, locale: 'it' };
+
+    const res = await restoreBackup(repo, backup, mode);
+    expect(res.ok).toBe(false);
+    expect(await repo.exportAll()).toEqual(before);
+    repo.close();
+  });
+});
+
+describe('storage failures become Results, never a false "saved"', () => {
+  it('maps quota and generic failures', async () => {
+    const { createRepository } = await import('../createRepository');
+    const { createMemoryBackend } = await import('../memoryRepository');
+    for (const [errName, code] of [
+      ['QuotaExceededError', 'repo.quota_exceeded'],
+      ['UnknownError', 'repo.storage_unavailable'],
+    ] as const) {
+      const backend = createMemoryBackend();
+      const failing = {
+        ...backend,
+        put: async () => Promise.reject(new DOMException('x', errName)),
+      };
+      const repo = createRepository(failing);
+      const spy = console.error;
+      console.error = () => {};
+      try {
+        const res = await repo.add('weights', weight('2026-09-01', 80));
+        expect(!res.ok && res.error.code).toBe(code);
+      } finally {
+        console.error = spy;
+      }
+      expect(await repo.list('weights')).toHaveLength(0);
+    }
+  });
+
+  it('exportAll reads one consistent snapshot of records, settings and profile', async () => {
+    const repo = await openIndexedDbRepository({ name: uniqueName() });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveProfile({ sex: { kind: 'declined' } });
+    const snap = await repo.exportAll();
+    expect(snap.records.weights.map((w) => w.kg)).toEqual([80]);
+    expect(snap.profile.sex).toEqual({ kind: 'declined' });
+    expect(Object.keys(snap.records).sort()).toEqual([
+      'activity',
+      'bodyComposition',
+      'dayStatus',
+      'goals',
+      'imports',
+      'meals',
+      'targets',
+      'water',
+      'weights',
+      'workouts',
+    ]);
+    repo.close();
+  });
+});

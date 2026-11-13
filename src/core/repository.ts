@@ -14,6 +14,16 @@ export type SettingsPatch = Partial<Omit<Settings, 'schemaVersion' | 'updatedAt'
   units?: Partial<Settings['units']>;
 };
 
+/** Several writes applied as one atomic unit (see `Repository.commitBatch`). */
+export interface RepositoryBatch {
+  /** Wipe all records, settings and profile first (full restore). */
+  replaceAll?: boolean;
+  /** Complete records (ids and timestamps kept), per collection. */
+  records: { [C in CollectionName]?: CollectionMap[C][] };
+  settings?: Settings;
+  profile?: Profile;
+}
+
 export interface ListQuery {
   /** Inclusive day range on `dayKey` (or `effectiveFrom` for goals/targets). */
   from?: DayKey;
@@ -41,6 +51,8 @@ export type ChangeEvent =
  * - `list` is sorted by day (or `effectiveFrom`) ascending, then `recordedAt`, then `createdAt`.
  * - `remove` is a soft delete; `purge` is the only hard delete.
  * - Every write is validated by `core/validation` (ranges, dates, cross-field consistency).
+ * - Write methods returning `Result` never throw on storage failures: quota → `repo.quota_exceeded`,
+ *   other failures → `repo.storage_unavailable`. `reset` and `purge` may reject.
  * - `goals` and `targets` are append-only: `update` accepts only `note`; change a goal by adding
  *   a new entry (see `core/history.ts`).
  * - Values are stored exactly as given: no rounding, no unit conversion, no zero-filling.
@@ -69,6 +81,21 @@ export interface Repository {
     collection: C,
     records: CollectionMap[C][],
   ): Promise<Result<number>>;
+  /**
+   * Validate EVERYTHING first, then apply the batch atomically (one storage transaction):
+   * either the whole batch is applied or nothing is — also if the app is closed midway.
+   * Used for backup restore (replace or merge) and imports.
+   */
+  commitBatch(batch: RepositoryBatch): Promise<Result<number>>;
+  /**
+   * Every record (soft-deleted included), settings and profile read in ONE consistent snapshot
+   * (single storage transaction) — the source for backups.
+   */
+  exportAll(): Promise<{
+    records: { [C in CollectionName]: CollectionMap[C][] };
+    settings: Settings;
+    profile: Profile;
+  }>;
   /** Records whose `dedupeKey` is in `keys` (deleted included), for import de-duplication. */
   findByDedupeKeys<C extends CollectionName>(
     collection: C,

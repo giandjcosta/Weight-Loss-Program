@@ -5,7 +5,7 @@
 import { parseDayKey, parseIsoDateTime } from './dates';
 import { msg } from './messages';
 import { err, ok, type Result } from './result';
-import type { CollectionName, Profile, Settings } from './types';
+import { SCHEMA_VERSION, type CollectionName, type Profile, type Settings } from './types';
 import { PLAUSIBLE } from './units';
 
 type Rec = Record<string, unknown>;
@@ -216,8 +216,176 @@ export function validateProfile(p: Partial<Profile>): Result<true> {
   const value = (a: unknown) => (isObj(a) && a.kind === 'value' ? (a.value as unknown) : undefined);
   const check = (field: string, v: unknown, range: RangeKey, unit: string) =>
     v === undefined ? ok<true>(true) : num({ [field]: v }, field, range, unit);
+  const enumAnswer = (field: string, a: unknown, values: readonly string[]) => {
+    if (a === undefined) return ok<true>(true);
+    if (!isObj(a) || !['value', 'unknown', 'not_measured', 'declined'].includes(String(a.kind))) {
+      return inconsistent(field);
+    }
+    return a.kind !== 'value' || oneOf(a.value, values) ? ok<true>(true) : inconsistent(field);
+  };
   return all(
     () => check('heightCm', value(p.heightCm), 'heightCm', 'cm'),
     () => check('birthYear', value(p.birthYear), 'birthYear', ''),
+    () =>
+      isObj(p.birthYear) && p.birthYear.kind === 'value' && !Number.isInteger(p.birthYear.value)
+        ? inconsistent('birthYear')
+        : ok<true>(true),
+    () => enumAnswer('sex', p.sex, ['female', 'male', 'other']),
+    () =>
+      enumAnswer('activityLevel', p.activityLevel, [
+        'sedentary',
+        'light',
+        'moderate',
+        'active',
+        'very_active',
+      ]),
   );
+}
+
+const oneOf = (v: unknown, values: readonly string[]) =>
+  typeof v === 'string' && values.includes(v);
+
+/** A complete stored Settings document (backup restore): shape + values. */
+export function validateFullSettings(value: unknown): Result<true> {
+  const bad = () => err<true>(msg('validation.inconsistent', { fields: ['settings'] }));
+  if (!isObj(value)) return bad();
+  const s = value as Rec;
+  const u = s.units;
+  if (
+    s.schemaVersion !== SCHEMA_VERSION ||
+    !parseIsoDateTime(String(s.updatedAt)) ||
+    !oneOf(s.locale, ['it', 'en']) ||
+    !oneOf(s.theme, ['dark', 'light', 'system']) ||
+    !oneOf(s.progressPalette, ['neutral', 'warm_to_green', 'custom']) ||
+    !oneOf(s.appIcon, ['primary', 'bars']) ||
+    !isObj(u) ||
+    !oneOf(u.weight, ['kg', 'lb']) ||
+    !oneOf(u.length, ['cm', 'in']) ||
+    !oneOf(u.volume, ['ml', 'fl_oz']) ||
+    !oneOf(u.distance, ['km', 'mi']) ||
+    !oneOf(u.energy, ['kcal', 'kj'])
+  ) {
+    return bad();
+  }
+  for (const k of ['onboardingCompletedAt', 'lastBackupAt']) {
+    if (s[k] !== undefined && !parseIsoDateTime(String(s[k]))) return bad();
+  }
+  return validateSettings(s as Partial<Settings>);
+}
+
+/** A complete stored Profile document (backup restore): shape + values. */
+export function validateFullProfile(value: unknown): Result<true> {
+  const bad = () => err<true>(msg('validation.inconsistent', { fields: ['profile'] }));
+  if (!isObj(value)) return bad();
+  const p = value as Rec;
+  if (p.schemaVersion !== SCHEMA_VERSION || !parseIsoDateTime(String(p.updatedAt))) return bad();
+  const answerOk = (a: unknown) =>
+    a === undefined ||
+    (isObj(a) &&
+      oneOf(a.kind, ['value', 'unknown', 'not_measured', 'declined']) &&
+      (a.kind !== 'value' || 'value' in a));
+  for (const k of ['heightCm', 'birthYear', 'sex', 'activityLevel'])
+    if (!answerOk(p[k])) return bad();
+  return validateProfile(p as Partial<Profile>);
+}
+
+// ---------------------------------------------------------------------------
+// Complete-record shape (untrusted input: backups, imports, untyped callers)
+
+const SOURCE_KINDS = ['manual', 'apple_health', 'csv', 'backup', 'demo'] as const;
+const QUALITY = ['measured', 'estimated', 'imported'] as const;
+const MEAL_QUALITY = ['verified', 'estimated', 'imported'] as const;
+const COMPLETENESS = ['unknown', 'unlogged', 'partial', 'complete'] as const;
+
+const isStr = (v: unknown) => typeof v === 'string' && v.length > 0;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+
+/** Required fields per collection (beyond the shared record meta). */
+const REQUIRED: Record<CollectionName, (r: Rec) => string[]> = {
+  weights: (r) => [
+    ...(isNum(r.kg) ? [] : ['kg']),
+    ...(oneOf(r.quality, QUALITY) ? [] : ['quality']),
+  ],
+  bodyComposition: (r) => (oneOf(r.quality, QUALITY) ? [] : ['quality']),
+  meals: (r) => [
+    ...(oneOf(r.slot, ['breakfast', 'lunch', 'dinner', 'snack']) ? [] : ['slot']),
+    ...(oneOf(r.quality, MEAL_QUALITY) ? [] : ['quality']),
+  ],
+  water: (r) => (isNum(r.ml) ? [] : ['ml']),
+  dayStatus: (r) => [
+    ...(isStr(r.dayKey) ? [] : ['dayKey']),
+    ...(oneOf(r.nutrition, COMPLETENESS) ? [] : ['nutrition']),
+    ...(oneOf(r.water, COMPLETENESS) ? [] : ['water']),
+  ],
+  workouts: (r) => [
+    ...(isStr(r.title) ? [] : ['title']),
+    ...(oneOf(r.status, ['completed', 'skipped', 'rescheduled']) ? [] : ['status']),
+    ...(Array.isArray(r.exercises) ? [] : ['exercises']),
+    ...(Array.isArray(r.cardio) ? [] : ['cardio']),
+  ],
+  activity: (r) => (isStr(r.dayKey) ? [] : ['dayKey']),
+  goals: (r) => [
+    ...(isStr(r.effectiveFrom) ? [] : ['effectiveFrom']),
+    ...(oneOf(r.direction, ['lose', 'gain', 'maintain', 'recomp']) ? [] : ['direction']),
+    ...(oneOf(r.setBy, ['user', 'professional']) ? [] : ['setBy']),
+  ],
+  targets: (r) => [
+    ...(isStr(r.effectiveFrom) ? [] : ['effectiveFrom']),
+    ...(oneOf(r.setBy, ['user', 'professional']) ? [] : ['setBy']),
+  ],
+  imports: (r) => [
+    ...(oneOf(r.format, ['apple_health_xml', 'apple_health_zip', 'csv', 'ritmea_backup'])
+      ? []
+      : ['format']),
+    ...(isStr(r.startedAt) ? [] : ['startedAt']),
+    ...(oneOf(r.status, ['running', 'completed', 'failed', 'cancelled']) ? [] : ['status']),
+    ...(isObj(r.counts) &&
+    ['read', 'added', 'duplicates', 'skippedInvalid'].every((k) => isNum((r.counts as Rec)[k]))
+      ? []
+      : ['counts']),
+  ],
+};
+
+const DATED: readonly CollectionName[] = [
+  'weights',
+  'bodyComposition',
+  'meals',
+  'water',
+  'workouts',
+];
+
+/**
+ * Validate a COMPLETE stored record: shared meta (id, schemaVersion, ISO timestamps, source),
+ * the collection's required fields and enums, then all value rules of `validateRecord`.
+ * Used for every write path, so untyped input (backup files, imports) cannot store partial
+ * records such as a weight without `kg`.
+ */
+export function validateCompleteRecord(collection: CollectionName, record: unknown): Result<true> {
+  if (!isObj(record)) return inconsistent('record');
+  const r = record;
+  const missing: string[] = [];
+  if (!isStr(r.id) || !UUID.test(r.id as string)) missing.push('id');
+  // stored records are always at the current version (older backups are migrated first)
+  if (r.schemaVersion !== SCHEMA_VERSION) missing.push('schemaVersion');
+  for (const k of ['createdAt', 'updatedAt'] as const) {
+    if (typeof r[k] !== 'string' || !parseIsoDateTime(r[k] as string)) missing.push(k);
+  }
+  if (
+    r.deletedAt !== undefined &&
+    (typeof r.deletedAt !== 'string' || !parseIsoDateTime(r.deletedAt))
+  ) {
+    missing.push('deletedAt');
+  }
+  if (!isObj(r.source) || !oneOf(r.source.kind, SOURCE_KINDS)) missing.push('source.kind');
+  for (const k of ['importId', 'dedupeKey'] as const) {
+    if (r[k] !== undefined && !isStr(r[k])) missing.push(k);
+  }
+  if (DATED.includes(collection)) {
+    if (!isStr(r.dayKey)) missing.push('dayKey');
+    if (!isStr(r.timeZone)) missing.push('timeZone');
+  }
+  missing.push(...REQUIRED[collection](r));
+  if (missing.length) return inconsistent(...missing);
+  return validateRecord(collection, r);
 }
