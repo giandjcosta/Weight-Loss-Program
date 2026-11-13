@@ -10,6 +10,10 @@ import type {
 } from './types';
 import type { Result } from './result';
 
+export type SettingsPatch = Partial<Omit<Settings, 'schemaVersion' | 'updatedAt' | 'units'>> & {
+  units?: Partial<Settings['units']>;
+};
+
 export interface ListQuery {
   /** Inclusive day range on `dayKey` (or `effectiveFrom` for goals/targets). */
   from?: DayKey;
@@ -36,6 +40,9 @@ export type ChangeEvent =
  * - Returned objects are copies; mutating them never changes stored data.
  * - `list` is sorted by day (or `effectiveFrom`) ascending, then `recordedAt`, then `createdAt`.
  * - `remove` is a soft delete; `purge` is the only hard delete.
+ * - Every write is validated by `core/validation` (ranges, dates, cross-field consistency).
+ * - `goals` and `targets` are append-only: `update` accepts only `note`; change a goal by adding
+ *   a new entry (see `core/history.ts`).
  * - Values are stored exactly as given: no rounding, no unit conversion, no zero-filling.
  */
 export interface Repository {
@@ -69,9 +76,12 @@ export interface Repository {
   ): Promise<CollectionMap[C][]>;
 
   getSettings(): Promise<Settings>;
-  saveSettings(patch: Partial<Omit<Settings, 'schemaVersion' | 'updatedAt'>>): Promise<Settings>;
+  /** Validates (e.g. custom colours); `units` is deep-merged, so `{ units: { weight: 'lb' } }` is safe. */
+  saveSettings(patch: SettingsPatch): Promise<Result<Settings>>;
   getProfile(): Promise<Profile>;
-  saveProfile(patch: Partial<Omit<Profile, 'schemaVersion' | 'updatedAt'>>): Promise<Profile>;
+  saveProfile(
+    patch: Partial<Omit<Profile, 'schemaVersion' | 'updatedAt'>>,
+  ): Promise<Result<Profile>>;
 
   /** Delete everything (settings return to defaults). */
   reset(): Promise<void>;

@@ -58,3 +58,26 @@ describe('dates', () => {
     expect(weekStart(d('2026-11-15'))).toBe('2026-11-09');
   });
 });
+
+describe('parseIsoDateTime rejects impossible instants', () => {
+  it.each([
+    '2026-02-30T11:00:00+01:00',
+    '2026-02-29T11:00:00Z', // not a leap year
+    '2026-04-31T08:00:00+02:00',
+    '2026-11-13T24:00:00+01:00',
+    '2026-11-13T23:60:00+01:00',
+    '2026-11-13T23:59:60+01:00',
+    '2026-11-13T08:00:00+15:00',
+    '2026-11-13T08:00:00+01:60',
+  ])('%s', (v) => expect(parseIsoDateTime(v)).toBeUndefined());
+
+  it.each([
+    '2028-02-29T07:30:00.000+01:00', // leap day
+    '2026-03-29T01:59:59+01:00', // just before Europe DST switch
+    '2026-03-29T03:00:00+02:00', // just after
+    '2026-10-25T02:30:00+02:00', // repeated hour, first occurrence
+    '2026-10-25T02:30:00+01:00', // repeated hour, second occurrence
+    '2026-11-13T08:00:00+14:00',
+    '2026-11-13T08:00Z',
+  ])('accepts %s', (v) => expect(parseIsoDateTime(v)).toBe(v));
+});

@@ -1,9 +1,7 @@
 import {
-  checkRange,
   err,
   msg,
-  ok,
-  parseDayKey,
+  validateRecord,
   type CollectionMap,
   type CollectionName,
   type ListQuery,
@@ -42,24 +40,9 @@ export function matchesQuery(r: AnyRecord, query: ListQuery): boolean {
   return true;
 }
 
-/** Minimal structural validation shared by add/update/putMany. Field UX validation is in forms. */
+/** Persistence-boundary validation (delegates to the shared `core/validation`). */
 export function validateFields(collection: CollectionName, r: object): Result<true> {
-  const rec = r as Record<string, unknown>;
-  for (const key of ['dayKey', 'effectiveFrom'] as const) {
-    const v = rec[key];
-    if (v !== undefined && (typeof v !== 'string' || !parseDayKey(v))) {
-      return err(msg('validation.invalid_date', { input: String(v) }));
-    }
-  }
-  if (collection === 'weights' && rec.kg !== undefined) {
-    const res = checkRange('weightKg', Number(rec.kg), 'kg');
-    if (!res.ok) return res;
-  }
-  if (collection === 'water' && rec.ml !== undefined) {
-    const res = checkRange('waterMl', Number(rec.ml), 'ml');
-    if (!res.ok) return res;
-  }
-  return ok(true);
+  return validateRecord(collection, r);
 }
 
 /** Full-record check for putMany/restore: managed fields must be present and well-formed. */

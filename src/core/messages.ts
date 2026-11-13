@@ -9,8 +9,12 @@ export interface MessageArgs {
   'validation.out_of_range': { field: string; min: number; max: number; unit: string };
   'validation.invalid_date': { input: string };
   'validation.future_date': { field: string };
+  'validation.inconsistent': { fields: string[] };
+  'validation.invalid_color': { input: string };
   // repository
   'repo.not_found': { collection: string; id: string };
+  /** Goals/targets are history: add a new entry instead of editing an old one. */
+  'repo.append_only': { collection: string; fields: string[] };
   'repo.storage_unavailable': Record<string, never>;
   'repo.quota_exceeded': Record<string, never>;
   // imports

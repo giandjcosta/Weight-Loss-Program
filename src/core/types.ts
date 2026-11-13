@@ -103,10 +103,36 @@ export interface BodyCompositionEntry extends RecordMeta, Dated {
 
 export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack';
 
+/** How much was eaten. `serving` = the source's declared serving; `piece` = one item. */
+export interface Portion {
+  quantity: number;
+  unit: 'g' | 'ml' | 'piece' | 'serving';
+}
+
+/** Where nutrition values came from (provenance shown to the user). */
+export interface NutritionSource {
+  /** Future catalog reference (`FoodItem.id`); absent for free-text meals. */
+  foodId?: Id;
+  /** e.g. "Open Food Facts", "McDonald's Italia — tabella nutrizionale", "Stima utente". */
+  name: string;
+  /** ISO 3166-1 alpha-2, e.g. "IT". Restaurant values differ by country. */
+  country?: string;
+  url?: string;
+  /** Basis of the source values the meal totals were computed from. */
+  basis: 'per_100g' | 'per_100ml' | 'per_serving' | 'whole_meal';
+  /** When the source values were read/checked. */
+  checkedAt?: IsoDateTime;
+}
+
 export interface MealEntry extends RecordMeta, Dated {
   slot: MealSlot;
   name?: string;
-  /** Nutrition values are optional individually: a known kcal with unknown macros is valid. */
+  portion?: Portion;
+  nutritionSource?: NutritionSource;
+  /**
+   * Nutrition values are TOTALS AS EATEN (already scaled by portion), each optional:
+   * a known kcal with unknown macros is valid.
+   */
   kcal?: number;
   proteinG?: number;
   carbsG?: number;
@@ -178,14 +204,35 @@ export interface ActivityDay extends RecordMeta {
   aggregation?: string;
 }
 
+/**
+ * PLANNED (not stored yet; food-catalog PR): a reusable food with per-basis values.
+ * Defined now so UI and import code do not guess field names.
+ */
+export interface FoodItem extends RecordMeta {
+  name: string;
+  brand?: string;
+  barcode?: string;
+  /** Values below are per this basis. */
+  basis: 'per_100g' | 'per_100ml' | 'per_serving';
+  /** Size of one declared serving, when the source provides it. */
+  serving?: Portion;
+  kcal?: number;
+  proteinG?: number;
+  carbsG?: number;
+  fatG?: number;
+  quality: 'verified' | 'estimated';
+  nutritionSource: Omit<NutritionSource, 'foodId' | 'basis'>;
+}
+
 // ---------------------------------------------------------------------------
 // Goals, targets, profile, settings
 
 export type GoalDirection = 'lose' | 'gain' | 'maintain' | 'recomp';
 
 /**
- * Append-only goal history: editing a goal adds a new entry with a later `effectiveFrom`.
- * Progress on a given day uses the entry in effect on that day.
+ * Append-only goal history (enforced by the Repository): changing a goal means ADDING a new
+ * entry; existing entries only accept `note` edits, or a soft delete to withdraw a mistaken
+ * entry. Progress on a given day uses the entry in effect on that day (`core/history.ts`).
  */
 export interface GoalEntry extends RecordMeta {
   effectiveFrom: DayKey;
@@ -202,7 +249,7 @@ export interface GoalEntry extends RecordMeta {
   note?: string;
 }
 
-/** Nutrition/hydration references. Values are references, not prescriptions. */
+/** Nutrition/hydration references (append-only like goals). References, not prescriptions. */
 export interface TargetsEntry extends RecordMeta {
   effectiveFrom: DayKey;
   kcal?: number;
@@ -250,6 +297,11 @@ export interface Settings {
   timeZone?: TimeZone;
   theme: 'dark' | 'light' | 'system';
   progressPalette: 'neutral' | 'warm_to_green' | 'custom';
+  /**
+   * Used when `progressPalette === 'custom'`: 1 colour (solid) or 2–3 colours (gradient,
+   * start → end), each `#RRGGBB`. Validated on save.
+   */
+  customProgressColors?: string[];
   appIcon: 'primary' | 'bars';
   onboardingCompletedAt?: IsoDateTime;
   lastBackupAt?: IsoDateTime;

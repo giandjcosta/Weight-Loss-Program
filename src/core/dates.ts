@@ -76,10 +76,22 @@ export function toIsoWithOffset(instant: Date, timeZone: TimeZone): IsoDateTime 
   return `${local.toISOString().slice(0, 23)}${sign}${hh}:${mm}` as IsoDateTime;
 }
 
-/** Validate and brand an ISO 8601 instant that carries an explicit offset or `Z`. */
+/**
+ * Validate and brand an ISO 8601 instant that carries an explicit offset or `Z`.
+ * Rejects impossible calendar dates/times (e.g. Feb 30, 24:00, offset +15:00) instead of letting
+ * `Date.parse` silently roll them over.
+ */
 export function parseIsoDateTime(value: string): IsoDateTime | undefined {
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(value)) {
-    return undefined;
+  const m =
+    /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(
+      value,
+    );
+  if (!m || !parseDayKey(m[1]!)) return undefined;
+  const [hh, mm, ss] = [Number(m[2]), Number(m[3]), Number(m[4] ?? 0)];
+  if (hh > 23 || mm > 59 || ss > 59) return undefined;
+  if (m[5] !== 'Z') {
+    const [oh, om] = [Number(m[7]), Number(m[8])];
+    if (oh > 14 || om > 59 || (oh === 14 && om > 0)) return undefined;
   }
   return Number.isNaN(Date.parse(value)) ? undefined : (value as IsoDateTime);
 }

@@ -200,6 +200,8 @@ async function writeAll(repo: Repository, backup: RitmeaBackup, summary: Restore
   }
   const { schemaVersion: _s, updatedAt: _u, ...settings } = backup.settings;
   const { schemaVersion: _ps, updatedAt: _pu, ...profile } = backup.profile;
-  await repo.saveSettings(settings);
-  await repo.saveProfile(profile);
+  const s = await repo.saveSettings(settings);
+  if (!s.ok) throw new Error(`Restore of settings rejected: ${s.error.code}`);
+  const p = await repo.saveProfile(profile);
+  if (!p.ok) throw new Error(`Restore of profile rejected: ${p.error.code}`);
 }

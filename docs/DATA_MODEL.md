@@ -16,12 +16,32 @@ Changes to `src/core/**` need review from both agents (Claude + ChatGPT).
    - `quality`: `measured | estimated | imported`; meals use `verified | estimated | imported`;
    - `importId` and `dedupeKey` for records that come from an import.
 5. **Soft delete.** `remove` sets `deletedAt` and `purge` is the only hard delete (user-requested deletion). This lets imports and backups reconcile instead of resurrecting deleted data.
-6. **Goals and targets are append-only histories.**
+6. **Goals and targets are append-only histories (enforced by the Repository).**
    - Editing a goal adds a `GoalEntry` with a later `effectiveFrom`; progress on a day uses the goal in effect that day.
    - The baseline (`startKg`/`startDay`) is stored on the goal, so editing old weigh-ins does not silently move it.
+   - `update` on an existing goal/target accepts only `note`; anything else returns `repo.append_only`. A mistaken entry can be withdrawn with `remove` (soft delete, still visible in history).
+   - `entryInEffect(entries, day)` in `core/history.ts` picks the entry for a day, so adding a goal never rewrites past progress.
    - `setBy: 'professional'` targets are never changed by calc or suggestions.
 7. **Typed messages, no UI strings outside `src/i18n`.** Modules return `Message = { code, args }` (`core/messages.ts`).
 8. **Calculation results always use one shape**: `CalcResult<T>` = `ok | insufficient_data | not_applicable`. Nothing falls back to 0.
+
+## Validation at the persistence boundary
+
+`core/validation.ts` (`validateRecord`, `validateSettings`, `validateProfile`) is used by the Repository on every `add`, `update` (on the merged record) and `putMany`. Importers and forms reuse it, so no path can store invalid data.
+
+- **Every numeric field** must be finite and inside the plausible range (`PLAUSIBLE` in `core/units.ts`): weights, body composition, meal kcal/macros and portion, water, sets (reps/load/duration), cardio (minutes/km/incline/heart rate), activity, goal and target values.
+- **Dates:** `dayKey`, `effectiveFrom`, `startDay`, `targetDate` and `rescheduledTo` must be real calendar days. Instants must be ISO with an offset and a possible date and time; Feb 30, 24:00 and offset +15:00 are rejected.
+- **Cross-field rules:**
+  - `rescheduled` workouts need `rescheduledTo`;
+  - `kcalMin ≤ kcal ≤ kcalMax`;
+  - `lose` needs target < start, and `gain` needs target > start;
+  - `maintain` with a target needs a band;
+  - `targetDate ≥ effectiveFrom`.
+- **Settings:** `customProgressColors` holds 1–3 `#RRGGBB` values. `units` is deep-merged, so `saveSettings({ units: { weight: 'lb' } })` is safe. `saveSettings` and `saveProfile` return `Result`.
+
+## Nutrition provenance
+
+`MealEntry` values are **totals as eaten**. Optional `portion` (`quantity` + `g/ml/piece/serving`) and `nutritionSource` (name, country, URL, basis `per_100g/per_100ml/per_serving/whole_meal`, `checkedAt`) record where they came from, together with `quality: verified | estimated | imported`. `FoodItem` is **typed now but not stored yet**: it is the planned food-catalog extension, so UI and imports don't guess field names.
 
 ## Dates and time zones
 
@@ -76,11 +96,23 @@ Before inserting, the importer calls `findByDedupeKeys`; matches (including soft
 - neutral default settings with no personal values;
 - change events.
 
-## Migrations (next PR: `claude/data-layer`)
+## Storage, migrations and backup (`claude/data-layer`)
 
-- Every record carries `schemaVersion`. IndexedDB upgrades run ordered, idempotent migration steps (`v1 → v2 → …`) inside the version-change transaction, so a failed upgrade aborts without partial writes.
-- An automatic local backup snapshot is taken before any migration.
-- Tests: migrate fixtures from every previous version, and make sure a backup → wipe → restore round-trip is identical.
+- **IndexedDB** (`src/data/indexedDb`). The real database is named `ritmea`; demo mode and tests use other names, so they never mix. There is one object store per collection (keyPath `id`, with a `dedupeKey` index), a `meta` store (settings, profile) and `preMigrationSnapshots`.
+- **Upgrades.** `DB_VERSION` plus ordered `MIGRATIONS[v]` steps run inside the single `versionchange` transaction:
+  - before any step, every existing store is copied into `preMigrationSnapshots`;
+  - if a step throws, the whole upgrade aborts and the old data and version stay untouched;
+  - a missing step refuses to open;
+  - another tab holding the old version is asked to close (`onversionchange`).
+- **Backups** (`src/data/backup.ts`) are JSON files `ritmea-backup-YYYY-MM-DD.json` containing all records (soft-deleted included), settings and profile, plus `formatVersion`/`schemaVersion` and a `containsDemoData` flag. `parseBackup`:
+  - rejects files from newer app versions;
+  - rejects the **whole** file if any record is invalid;
+  - upgrades old record versions through `RECORD_MIGRATIONS`.
+- **Restore modes:**
+  - `replace`: the device becomes exactly the backup; on failure the previous state is written back;
+  - `merge`: match by id and keep the newer `updatedAt`; device settings are kept.
+- **Durability helpers** (`src/data/persistence.ts`): `requestPersistentStorage()`, `isStoragePersisted()`, `storageEstimate()`, `daysSinceBackup()`. On iOS, non-installed sites can be evicted. The UI should recommend installing to the Home Screen and taking regular backups.
+- `.gitignore` ignores `ritmea-backup-*.json`, so a backup can't be committed to this public repo by accident.
 
 ## Synthetic data
 

@@ -143,3 +143,22 @@ describe('parseBackup safety', () => {
     expect(parseBackup(JSON.stringify(b)).ok).toBe(false); // no registry entry → refused
   });
 });
+
+describe('replace restore rollback', () => {
+  it('puts the previous data back if the backup content is rejected midway', async () => {
+    const device = createMemoryRepository();
+    await device.add('weights', weight('2026-09-01', 80));
+    const backup = await createBackup(createMemoryRepository());
+    // settings that fail validation make the restore fail after records were written
+    (backup.settings as { customProgressColors?: string[] }).customProgressColors = ['nope'];
+    const errorSpy = console.error;
+    console.error = () => {};
+    try {
+      const res = await restoreBackup(device, backup, 'replace');
+      expect(res.ok).toBe(false);
+    } finally {
+      console.error = errorSpy;
+    }
+    expect((await device.list('weights')).map((w) => w.kg)).toEqual([80]);
+  });
+});

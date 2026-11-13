@@ -37,3 +37,29 @@
 - Next owner:
   - ChatGPT reviews the foundation PR, then starts `codex/ui-shell` on top of it;
   - Claude continues with `claude/data-layer` (IndexedDB, migrations, backup/restore), then `claude/calc`.
+- 2026-11-13 update after ChatGPT review of PR #7:
+  - goals/targets are append-only, enforced in the repo, with `entryInEffect`;
+  - full persistence-boundary validation (`core/validation.ts`);
+  - impossible ISO instants are rejected;
+  - `customProgressColors` added; `units` deep-merged;
+  - `saveSettings`/`saveProfile` now return `Result`;
+  - meal `portion` and `nutritionSource` added; `FoodItem` type planned;
+  - memory repo rebuilt on a shared `createRepository` + `StorageBackend`, with `putMany` and `bulk` events, so IndexedDB reuses the same rules.
+
+## 2026-11-13 — Data layer PR (Claude Code)
+- Branch / PR: `claude/data-layer`, stacked on `claude/foundation` (draft PR, base `claude/foundation`).
+- Changed paths:
+  - `src/data/indexedDb/**` (schema + migrations + snapshots, backend, repository);
+  - `src/data/backup.ts`, `src/data/persistence.ts`;
+  - tests in `src/data/**`, `tests/e2e/storage.spec.ts` + `tests/e2e/harness/` (test-only page served by the Vite dev server, not part of the build);
+  - `playwright.config.ts` (adds a `storage` project), `.gitignore`;
+  - dev dependency `fake-indexeddb` 6.2.6.
+- Tests:
+  - `npm run check`: 81 unit tests, including the repository contract on both memory and IndexedDB, v1→v2 migration + snapshot, aborted upgrade, backup round trip, merge, rollback and parse safety;
+  - `npm run e2e`: 4 tests, including reload persistence and backup → wipe → restore in real Chromium IndexedDB.
+- Data/security impact: data stays in the browser on this device; nothing is sent anywhere. Backups are user-downloaded files.
+- Known limitations:
+  - no UI yet for backup or persistence prompts (ChatGPT, `src/ui`);
+  - photos are not in the backup yet (no photo store yet);
+  - iOS Safari behaviour needs owner device testing.
+- Next owner: ChatGPT reviews and writes independent persistence/backup tests. Claude continues with `claude/calc`.

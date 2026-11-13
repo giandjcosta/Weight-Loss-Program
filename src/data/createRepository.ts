@@ -17,6 +17,8 @@ import {
   type RecordMeta,
   type Repository,
   type Settings,
+  validateProfile,
+  validateSettings,
 } from '../core';
 import type { StorageBackend } from './backend';
 import {
@@ -34,6 +36,11 @@ export interface RepositoryOptions {
 }
 
 const MANAGED = new Set(['id', 'schemaVersion', 'createdAt', 'updatedAt', 'deletedAt']);
+/** Collections that are histories: existing entries accept only these fields. */
+const APPEND_ONLY: Partial<Record<CollectionName, ReadonlySet<string>>> = {
+  goals: new Set(['note']),
+  targets: new Set(['note']),
+};
 
 /** Builds the Repository on top of any StorageBackend. */
 export function createRepository(
@@ -98,12 +105,18 @@ export function createRepository(
     async update(collection, id, patch) {
       const current = await backend.get(collection, id);
       if (!current || current.deletedAt) return err(msg('repo.not_found', { collection, id }));
-      const v = validateFields(collection, patch);
-      if (!v.ok) return v;
       const safe = Object.fromEntries(
         Object.entries(patch as Record<string, unknown>).filter(([k]) => !MANAGED.has(k)),
       );
+      const allowed = APPEND_ONLY[collection];
+      if (allowed) {
+        const blocked = Object.keys(safe).filter((k) => !allowed.has(k));
+        if (blocked.length) return err(msg('repo.append_only', { collection, fields: blocked }));
+      }
       const next = { ...current, ...clone(safe), updatedAt: now() } as AnyRecord;
+      // validate the merged record, so cross-field rules (e.g. kcalMin ≤ kcalMax) hold
+      const v = validateFields(collection, next);
+      if (!v.ok) return v;
       await backend.put(collection, [next]);
       emit({ type: 'put', collection, id });
       return ok(clone(next)) as never;
@@ -143,6 +156,8 @@ export function createRepository(
       return loadSettings();
     },
     async saveSettings(patch) {
+      const v = validateSettings(patch as Partial<Settings>);
+      if (!v.ok) return v;
       const current = await loadSettings();
       const next: Settings = {
         ...current,
@@ -153,12 +168,14 @@ export function createRepository(
       };
       await backend.putMeta('settings', next);
       emit({ type: 'settings' });
-      return clone(next);
+      return ok(clone(next));
     },
     async getProfile() {
       return loadProfile();
     },
     async saveProfile(patch) {
+      const v = validateProfile(patch);
+      if (!v.ok) return v;
       const next: Profile = {
         ...(await loadProfile()),
         ...clone(patch),
@@ -167,7 +184,7 @@ export function createRepository(
       };
       await backend.putMeta('profile', next);
       emit({ type: 'profile' });
-      return clone(next);
+      return ok(clone(next));
     },
 
     async reset() {
