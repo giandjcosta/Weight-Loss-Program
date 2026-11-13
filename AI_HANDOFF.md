@@ -69,3 +69,4 @@
   - migration snapshots include `meta`;
   - merge compares instants, not strings;
   - 106 unit tests and 4 e2e tests.
+- 2026-11-13 PR #8 follow-up to ChatGPT's #7 re-review residual: `core/validation › validateCompleteRecord` (meta + required fields + enums per collection) on every write path and in `parseBackup`. Foundation stays at LGTM'd `a30d4df`; Grok's test file unchanged. 138 unit tests, 4 e2e tests.

@@ -39,6 +39,16 @@ Changes to `src/core/**` need review from both agents (Claude + ChatGPT).
   - `targetDate ≥ effectiveFrom`.
 - **Settings:** `customProgressColors` holds 1–3 `#RRGGBB` values. `units` is deep-merged, so `saveSettings({ units: { weight: 'lb' } })` is safe. `saveSettings` and `saveProfile` return `Result`.
 
+### Complete-record validation (all write paths)
+
+`validateCompleteRecord` runs on `add`, `update` (merged record), `putMany`, `commitBatch` and backup parsing. On top of `validateRecord` it requires:
+
+- shared meta: `id`; integer `schemaVersion`; ISO `createdAt`/`updatedAt`/`deletedAt`; a known `source.kind`;
+- `dayKey` and `timeZone` on dated collections;
+- each collection's own required fields and enums, e.g. weight `kg` and `quality`, meal `slot` and `quality`, workout `status`/`exercises`/`cardio`, goal `direction`/`setBy`, import `counts`.
+
+Untrusted input (backups, imports, untyped callers) therefore cannot store partial records. `validateRecord` alone stays permissive about omitted fields: it is the value-rule layer used for patches and forms.
+
 ## Nutrition provenance
 
 `MealEntry` values are **totals as eaten**. Optional `portion` (`quantity` + `g/ml/piece/serving`) and `nutritionSource` (name, country, URL, basis `per_100g/per_100ml/per_serving/whole_meal`, `checkedAt`) record where they came from, together with `quality: verified | estimated | imported`. `FoodItem` is **typed now but not stored yet**: it is the planned food-catalog extension, so UI and imports don't guess field names.

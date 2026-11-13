@@ -104,8 +104,8 @@ describe('parseBackup safety', () => {
       {
         id: 'x',
         schemaVersion: 1,
-        createdAt: 'a',
-        updatedAt: 'a',
+        createdAt: '2026-09-01T08:00:00.000+02:00',
+        updatedAt: '2026-09-01T08:00:00.000+02:00',
         source: { kind: 'manual' },
         dayKey: '2026-13-01',
         timeZone: 'Europe/Rome',
@@ -124,8 +124,8 @@ describe('parseBackup safety', () => {
       {
         id: 'w1',
         schemaVersion: 0,
-        createdAt: 'a',
-        updatedAt: 'a',
+        createdAt: '2026-09-01T08:00:00.000+02:00',
+        updatedAt: '2026-09-01T08:00:00.000+02:00',
         source: { kind: 'manual' },
         dayKey: '2026-09-01',
         timeZone: 'Europe/Rome',
@@ -144,8 +144,8 @@ describe('parseBackup safety', () => {
   });
 });
 
-describe('replace restore rollback', () => {
-  it('puts the previous data back if the backup content is rejected midway', async () => {
+describe('replace restore is all-or-nothing', () => {
+  it('writes nothing and keeps the old data if the backup content is rejected', async () => {
     const device = createMemoryRepository();
     await device.add('weights', weight('2026-09-01', 80));
     const backup = await createBackup(createMemoryRepository());
@@ -204,6 +204,29 @@ describe('parseBackup rejects truncated or malformed structure before any restor
       return;
     }
     expect(await rejects(mutate)).toBe(true);
+  });
+
+  it('rejects records missing required fields (e.g. a weight without kg)', async () => {
+    const repo = createMemoryRepository();
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.add('meals', {
+      dayKey: '2026-09-01' as DayKey,
+      timeZone: tz,
+      slot: 'lunch',
+      quality: 'estimated',
+      source: { kind: 'manual' },
+    });
+    const good = JSON.parse(serializeBackup(await createBackup(repo)));
+    for (const [c, k] of [
+      ['weights', 'kg'],
+      ['weights', 'quality'],
+      ['weights', 'timeZone'],
+      ['meals', 'slot'],
+    ] as const) {
+      const b = structuredClone(good);
+      delete b.collections[c][0][k];
+      expect(parseBackup(JSON.stringify(b)).ok, `${c}.${k}`).toBe(false);
+    }
   });
 
   it('rejects duplicate ids inside a collection', async () => {

@@ -307,6 +307,49 @@ export function runRepositoryContract(
       }
     });
 
+    it('rejects incomplete records from untyped callers on every write path', async () => {
+      const repo = await makeRepo();
+      const ok1 = await repo.add('weights', weight('2026-09-01', 80));
+      if (!ok1.ok) throw new Error();
+      const full = ok1.value;
+      const strip = (k: string) => {
+        const copy: Record<string, unknown> = { ...full, id: `${full.id.slice(0, -4)}ffff` };
+        delete copy[k];
+        return copy as never;
+      };
+      for (const k of [
+        'kg',
+        'quality',
+        'dayKey',
+        'timeZone',
+        'source',
+        'createdAt',
+        'schemaVersion',
+      ]) {
+        const res = await repo.putMany('weights', [strip(k)]);
+        expect(res.ok, `missing ${k}`).toBe(false);
+      }
+      const badEnum = await repo.putMany('weights', [{ ...full, quality: 'guess' } as never]);
+      expect(badEnum.ok).toBe(false);
+      const noKg = await repo.add('weights', {
+        dayKey: '2026-09-02',
+        timeZone: tz,
+        quality: 'measured',
+        source: { kind: 'manual' },
+      } as never);
+      expect(noKg.ok).toBe(false);
+      const noSlot = await repo.add('meals', {
+        dayKey: '2026-09-02',
+        timeZone: tz,
+        quality: 'estimated',
+        source: { kind: 'manual' },
+      } as never);
+      expect(noSlot.ok).toBe(false);
+      const removeKg = await repo.update('weights', full.id, { kg: undefined } as never);
+      expect(removeKg.ok).toBe(false);
+      expect(await repo.list('weights')).toHaveLength(1);
+    });
+
     it('declares honestly that data is not synced', async () => {
       const repo = await makeRepo();
       expect(repo.storage.synced).toBe(false);

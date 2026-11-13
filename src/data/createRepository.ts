@@ -100,6 +100,8 @@ export function createRepository(
         updatedAt: t,
       };
       const record = { ...clone(input), ...meta } as unknown as CollectionMap[C];
+      const full = validateStoredRecord(collection, record);
+      if (!full.ok) return full;
       await backend.put(collection, [record]);
       emit({ type: 'put', collection, id: record.id });
       return ok(clone(record));
@@ -117,8 +119,8 @@ export function createRepository(
         if (blocked.length) return err(msg('repo.append_only', { collection, fields: blocked }));
       }
       const next = { ...current, ...clone(safe), updatedAt: now() } as AnyRecord;
-      // validate the merged record, so cross-field rules (e.g. kcalMin ≤ kcalMax) hold
-      const v = validateFields(collection, next);
+      // validate the complete merged record: required fields, enums and cross-field rules
+      const v = validateStoredRecord(collection, next);
       if (!v.ok) return v;
       await backend.put(collection, [next]);
       emit({ type: 'put', collection, id });

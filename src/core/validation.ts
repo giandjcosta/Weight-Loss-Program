@@ -268,3 +268,104 @@ export function validateFullProfile(value: unknown): Result<true> {
     if (!answerOk(p[k])) return bad();
   return validateProfile(p as Partial<Profile>);
 }
+
+// ---------------------------------------------------------------------------
+// Complete-record shape (untrusted input: backups, imports, untyped callers)
+
+const SOURCE_KINDS = ['manual', 'apple_health', 'csv', 'backup', 'demo'] as const;
+const QUALITY = ['measured', 'estimated', 'imported'] as const;
+const MEAL_QUALITY = ['verified', 'estimated', 'imported'] as const;
+const COMPLETENESS = ['unknown', 'unlogged', 'partial', 'complete'] as const;
+
+const isStr = (v: unknown) => typeof v === 'string' && v.length > 0;
+const isNum = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+
+/** Required fields per collection (beyond the shared record meta). */
+const REQUIRED: Record<CollectionName, (r: Rec) => string[]> = {
+  weights: (r) => [
+    ...(isNum(r.kg) ? [] : ['kg']),
+    ...(oneOf(r.quality, QUALITY) ? [] : ['quality']),
+  ],
+  bodyComposition: (r) => (oneOf(r.quality, QUALITY) ? [] : ['quality']),
+  meals: (r) => [
+    ...(oneOf(r.slot, ['breakfast', 'lunch', 'dinner', 'snack']) ? [] : ['slot']),
+    ...(oneOf(r.quality, MEAL_QUALITY) ? [] : ['quality']),
+  ],
+  water: (r) => (isNum(r.ml) ? [] : ['ml']),
+  dayStatus: (r) => [
+    ...(isStr(r.dayKey) ? [] : ['dayKey']),
+    ...(oneOf(r.nutrition, COMPLETENESS) ? [] : ['nutrition']),
+    ...(oneOf(r.water, COMPLETENESS) ? [] : ['water']),
+  ],
+  workouts: (r) => [
+    ...(isStr(r.title) ? [] : ['title']),
+    ...(oneOf(r.status, ['completed', 'skipped', 'rescheduled']) ? [] : ['status']),
+    ...(Array.isArray(r.exercises) ? [] : ['exercises']),
+    ...(Array.isArray(r.cardio) ? [] : ['cardio']),
+  ],
+  activity: (r) => (isStr(r.dayKey) ? [] : ['dayKey']),
+  goals: (r) => [
+    ...(isStr(r.effectiveFrom) ? [] : ['effectiveFrom']),
+    ...(oneOf(r.direction, ['lose', 'gain', 'maintain', 'recomp']) ? [] : ['direction']),
+    ...(oneOf(r.setBy, ['user', 'professional']) ? [] : ['setBy']),
+  ],
+  targets: (r) => [
+    ...(isStr(r.effectiveFrom) ? [] : ['effectiveFrom']),
+    ...(oneOf(r.setBy, ['user', 'professional']) ? [] : ['setBy']),
+  ],
+  imports: (r) => [
+    ...(oneOf(r.format, ['apple_health_xml', 'apple_health_zip', 'csv', 'ritmea_backup'])
+      ? []
+      : ['format']),
+    ...(isStr(r.startedAt) ? [] : ['startedAt']),
+    ...(oneOf(r.status, ['running', 'completed', 'failed', 'cancelled']) ? [] : ['status']),
+    ...(isObj(r.counts) &&
+    ['read', 'added', 'duplicates', 'skippedInvalid'].every((k) => isNum((r.counts as Rec)[k]))
+      ? []
+      : ['counts']),
+  ],
+};
+
+const DATED: readonly CollectionName[] = [
+  'weights',
+  'bodyComposition',
+  'meals',
+  'water',
+  'workouts',
+];
+
+/**
+ * Validate a COMPLETE stored record: shared meta (id, schemaVersion, ISO timestamps, source),
+ * the collection's required fields and enums, then all value rules of `validateRecord`.
+ * Used for every write path, so untyped input (backup files, imports) cannot store partial
+ * records such as a weight without `kg`.
+ */
+export function validateCompleteRecord(collection: CollectionName, record: unknown): Result<true> {
+  if (!isObj(record)) return inconsistent('record');
+  const r = record;
+  const missing: string[] = [];
+  if (!isStr(r.id)) missing.push('id');
+  if (typeof r.schemaVersion !== 'number' || !Number.isInteger(r.schemaVersion)) {
+    missing.push('schemaVersion');
+  }
+  for (const k of ['createdAt', 'updatedAt'] as const) {
+    if (typeof r[k] !== 'string' || !parseIsoDateTime(r[k] as string)) missing.push(k);
+  }
+  if (
+    r.deletedAt !== undefined &&
+    (typeof r.deletedAt !== 'string' || !parseIsoDateTime(r.deletedAt))
+  ) {
+    missing.push('deletedAt');
+  }
+  if (!isObj(r.source) || !oneOf(r.source.kind, SOURCE_KINDS)) missing.push('source.kind');
+  for (const k of ['importId', 'dedupeKey'] as const) {
+    if (r[k] !== undefined && !isStr(r[k])) missing.push(k);
+  }
+  if (DATED.includes(collection)) {
+    if (!isStr(r.dayKey)) missing.push('dayKey');
+    if (!isStr(r.timeZone)) missing.push('timeZone');
+  }
+  missing.push(...REQUIRED[collection](r));
+  if (missing.length) return inconsistent(...missing);
+  return validateRecord(collection, r);
+}

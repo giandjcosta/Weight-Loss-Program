@@ -1,6 +1,5 @@
 import {
-  err,
-  msg,
+  validateCompleteRecord,
   validateRecord,
   type CollectionMap,
   type CollectionName,
@@ -45,16 +44,10 @@ export function validateFields(collection: CollectionName, r: object): Result<tr
   return validateRecord(collection, r);
 }
 
-/** Full-record check for putMany/restore: managed fields must be present and well-formed. */
+/**
+ * Full-record check for every write path (add, update, batches, restore): meta, required
+ * fields and enums per collection, then value rules. See `core/validation › validateCompleteRecord`.
+ */
 export function validateStoredRecord(collection: CollectionName, r: unknown): Result<true> {
-  if (typeof r !== 'object' || r === null) return err(msg('import.malformed', {}));
-  const rec = r as Record<string, unknown>;
-  const okStr = (k: string) => typeof rec[k] === 'string' && (rec[k] as string).length > 0;
-  if (!okStr('id') || !okStr('createdAt') || !okStr('updatedAt')) {
-    return err(msg('import.malformed', {}));
-  }
-  if (typeof rec.schemaVersion !== 'number') return err(msg('import.malformed', {}));
-  if (typeof rec.source !== 'object' || rec.source === null)
-    return err(msg('import.malformed', {}));
-  return validateFields(collection, rec);
+  return validateCompleteRecord(collection, r);
 }
