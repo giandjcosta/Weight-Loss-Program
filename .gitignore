@@ -1,0 +1,23 @@
+# Private user health records and backups — never push these to the public repository
+private/
+personal/
+secrets/
+*.env
+.env*
+!.env.example
+*.sqlite
+*.db
+*.bak
+*health-export*.xml
+*apple-health*.xml
+*healthdata*.zip
+*lifesum-export*
+*medical-record*
+*personal-data*
+*_privato*
+*.pem
+*.key
+node_modules/
+dist/
+coverage/
+.DS_Store
