@@ -16,12 +16,32 @@ Changes to `src/core/**` need review from both agents (Claude + ChatGPT).
    - `quality`: `measured | estimated | imported`; meals use `verified | estimated | imported`;
    - `importId` and `dedupeKey` for records that come from an import.
 5. **Soft delete.** `remove` sets `deletedAt` and `purge` is the only hard delete (user-requested deletion). This lets imports and backups reconcile instead of resurrecting deleted data.
-6. **Goals and targets are append-only histories.**
+6. **Goals and targets are append-only histories (enforced by the Repository).**
    - Editing a goal adds a `GoalEntry` with a later `effectiveFrom`; progress on a day uses the goal in effect that day.
    - The baseline (`startKg`/`startDay`) is stored on the goal, so editing old weigh-ins does not silently move it.
+   - `update` on an existing goal/target accepts only `note`; anything else returns `repo.append_only`. A mistaken entry can be withdrawn with `remove` (soft delete, still visible in history).
+   - `entryInEffect(entries, day)` in `core/history.ts` picks the entry for a day, so adding a goal never rewrites past progress.
    - `setBy: 'professional'` targets are never changed by calc or suggestions.
 7. **Typed messages, no UI strings outside `src/i18n`.** Modules return `Message = { code, args }` (`core/messages.ts`).
 8. **Calculation results always use one shape**: `CalcResult<T>` = `ok | insufficient_data | not_applicable`. Nothing falls back to 0.
+
+## Validation at the persistence boundary
+
+`core/validation.ts` (`validateRecord`, `validateSettings`, `validateProfile`) is used by the Repository on every `add`, `update` (on the merged record) and `putMany`. Importers and forms reuse it, so no path can store invalid data.
+
+- **Every numeric field** must be finite and inside the plausible range (`PLAUSIBLE` in `core/units.ts`): weights, body composition, meal kcal/macros and portion, water, sets (reps/load/duration), cardio (minutes/km/incline/heart rate), activity, goal and target values.
+- **Dates:** `dayKey`, `effectiveFrom`, `startDay`, `targetDate` and `rescheduledTo` must be real calendar days. Instants must be ISO with an offset and a possible date and time; Feb 30, 24:00 and offset +15:00 are rejected.
+- **Cross-field rules:**
+  - `rescheduled` workouts need `rescheduledTo`;
+  - `kcalMin ≤ kcal ≤ kcalMax`;
+  - `lose` needs target < start, and `gain` needs target > start;
+  - `maintain` with a target needs a band;
+  - `targetDate ≥ effectiveFrom`.
+- **Settings:** `customProgressColors` holds 1–3 `#RRGGBB` values. `units` is deep-merged, so `saveSettings({ units: { weight: 'lb' } })` is safe. `saveSettings` and `saveProfile` return `Result`.
+
+## Nutrition provenance
+
+`MealEntry` values are **totals as eaten**. Optional `portion` (`quantity` + `g/ml/piece/serving`) and `nutritionSource` (name, country, URL, basis `per_100g/per_100ml/per_serving/whole_meal`, `checkedAt`) record where they came from, together with `quality: verified | estimated | imported`. `FoodItem` is **typed now but not stored yet**: it is the planned food-catalog extension, so UI and imports don't guess field names.
 
 ## Dates and time zones
 

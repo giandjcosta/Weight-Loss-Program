@@ -37,3 +37,11 @@
 - Next owner:
   - ChatGPT reviews the foundation PR, then starts `codex/ui-shell` on top of it;
   - Claude continues with `claude/data-layer` (IndexedDB, migrations, backup/restore), then `claude/calc`.
+- 2026-11-13 update after ChatGPT review of PR #7:
+  - goals/targets are append-only, enforced in the repo, with `entryInEffect`;
+  - full persistence-boundary validation (`core/validation.ts`);
+  - impossible ISO instants are rejected;
+  - `customProgressColors` added; `units` deep-merged;
+  - `saveSettings`/`saveProfile` now return `Result`;
+  - meal `portion` and `nutritionSource` added; `FoodItem` type planned;
+  - memory repo rebuilt on a shared `createRepository` + `StorageBackend`, with `putMany` and `bulk` events, so IndexedDB reuses the same rules.

@@ -10,6 +10,10 @@ import type {
 } from './types';
 import type { Result } from './result';
 
+export type SettingsPatch = Partial<Omit<Settings, 'schemaVersion' | 'updatedAt' | 'units'>> & {
+  units?: Partial<Settings['units']>;
+};
+
 export interface ListQuery {
   /** Inclusive day range on `dayKey` (or `effectiveFrom` for goals/targets). */
   from?: DayKey;
@@ -21,6 +25,8 @@ export interface ListQuery {
 export type ChangeEvent =
   | { type: 'put'; collection: CollectionName; id: Id }
   | { type: 'delete'; collection: CollectionName; id: Id }
+  /** Many records changed at once (backup restore, import). Re-read the collection. */
+  | { type: 'bulk'; collection: CollectionName; count: number }
   | { type: 'settings' }
   | { type: 'profile' }
   | { type: 'reset' };
@@ -34,6 +40,9 @@ export type ChangeEvent =
  * - Returned objects are copies; mutating them never changes stored data.
  * - `list` is sorted by day (or `effectiveFrom`) ascending, then `recordedAt`, then `createdAt`.
  * - `remove` is a soft delete; `purge` is the only hard delete.
+ * - Every write is validated by `core/validation` (ranges, dates, cross-field consistency).
+ * - `goals` and `targets` are append-only: `update` accepts only `note`; change a goal by adding
+ *   a new entry (see `core/history.ts`).
  * - Values are stored exactly as given: no rounding, no unit conversion, no zero-filling.
  */
 export interface Repository {
@@ -51,6 +60,15 @@ export interface Repository {
   remove(collection: CollectionName, id: Id): Promise<Result<void>>;
   /** Permanently delete records (user-requested data deletion). */
   purge(collection: CollectionName, ids: Id[]): Promise<void>;
+  /**
+   * Raw upsert that keeps the given ids, timestamps and schemaVersion (backup restore, imports
+   * of already-shaped records). Validates like `add`; all-or-nothing: if one record is invalid,
+   * nothing is written.
+   */
+  putMany<C extends CollectionName>(
+    collection: C,
+    records: CollectionMap[C][],
+  ): Promise<Result<number>>;
   /** Records whose `dedupeKey` is in `keys` (deleted included), for import de-duplication. */
   findByDedupeKeys<C extends CollectionName>(
     collection: C,
@@ -58,9 +76,12 @@ export interface Repository {
   ): Promise<CollectionMap[C][]>;
 
   getSettings(): Promise<Settings>;
-  saveSettings(patch: Partial<Omit<Settings, 'schemaVersion' | 'updatedAt'>>): Promise<Settings>;
+  /** Validates (e.g. custom colours); `units` is deep-merged, so `{ units: { weight: 'lb' } }` is safe. */
+  saveSettings(patch: SettingsPatch): Promise<Result<Settings>>;
   getProfile(): Promise<Profile>;
-  saveProfile(patch: Partial<Omit<Profile, 'schemaVersion' | 'updatedAt'>>): Promise<Profile>;
+  saveProfile(
+    patch: Partial<Omit<Profile, 'schemaVersion' | 'updatedAt'>>,
+  ): Promise<Result<Profile>>;
 
   /** Delete everything (settings return to defaults). */
   reset(): Promise<void>;

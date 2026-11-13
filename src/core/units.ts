@@ -119,6 +119,17 @@ export const PLAUSIBLE = {
   minutes: { min: 0, max: 1_440 },
   inclinePercent: { min: -10, max: 40 },
   fatPercent: { min: 2, max: 75 },
+  bodyMassKg: { min: 0, max: 400 },
+  durationSec: { min: 0, max: 86_400 },
+  distanceKm: { min: 0, max: 500 },
+  heartRate: { min: 20, max: 250 },
+  steps: { min: 0, max: 200_000 },
+  activeKcal: { min: 0, max: 20_000 },
+  kcalPerDay: { min: 0, max: 20_000 },
+  waterTargetMl: { min: 0, max: 10_000 },
+  maintainBandKg: { min: 0.1, max: 20 },
+  birthYear: { min: 1900, max: 2100 },
+  portionQuantity: { min: 0, max: 100_000 },
 } as const;
 
 export function checkRange(
