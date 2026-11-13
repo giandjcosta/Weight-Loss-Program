@@ -162,3 +162,75 @@ describe('replace restore rollback', () => {
     expect((await device.list('weights')).map((w) => w.kg)).toEqual([80]);
   });
 });
+
+// Backup JSON is untyped by nature; tests mutate it freely.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Json = any;
+
+describe('parseBackup rejects truncated or malformed structure before any restore', () => {
+  const base = async () =>
+    JSON.parse(serializeBackup(await createBackup(createMemoryRepository())));
+  const rejects = async (mutate: (b: Json) => void) => {
+    const b = await base();
+    mutate(b);
+    return parseBackup(JSON.stringify(b)).ok === false;
+  };
+
+  it.each([
+    ['missing weights', (b: Json) => delete b.collections.weights],
+    ['missing goals', (b: Json) => delete b.collections.goals],
+    ['missing targets', (b: Json) => delete b.collections.targets],
+    ['collections not an object', (b: Json) => (b.collections = [])],
+    ['collections missing', (b: Json) => delete b.collections],
+    ['collection not an array', (b: Json) => (b.collections.meals = {})],
+    ['formatVersion 0', (b: Json) => (b.formatVersion = 0)],
+    ['formatVersion 1.5', (b: Json) => (b.formatVersion = 1.5)],
+    ['formatVersion string', (b: Json) => (b.formatVersion = '1')],
+    ['schemaVersion missing', (b: Json) => delete b.schemaVersion],
+    ['exportedAt malformed', (b: Json) => (b.exportedAt = '2026-02-30T10:00:00Z')],
+    ['exportedAt missing', (b: Json) => delete b.exportedAt],
+    ['containsDemoData missing', (b: Json) => delete b.containsDemoData],
+    ['settings missing', (b: Json) => delete b.settings],
+    ['settings bad locale', (b: Json) => (b.settings.locale = 'xx')],
+    ['settings bad units', (b: Json) => (b.settings.units = { weight: 'stone' })],
+    ['settings bad colour', (b: Json) => (b.settings.customProgressColors = ['red'])],
+    ['profile missing', (b: Json) => delete b.profile],
+    ['profile bad answer', (b: Json) => (b.profile.heightCm = { kind: 'maybe' })],
+    ['profile impossible height', (b: Json) => (b.profile.heightCm = { kind: 'value', value: 17 })],
+    ['top-level array', () => undefined],
+  ])('%s', async (_name, mutate) => {
+    if (_name === 'top-level array') {
+      expect(parseBackup('[]').ok).toBe(false);
+      return;
+    }
+    expect(await rejects(mutate)).toBe(true);
+  });
+
+  it('rejects duplicate ids inside a collection', async () => {
+    const repo = createMemoryRepository();
+    await repo.add('weights', weight('2026-09-01', 80));
+    const b = JSON.parse(serializeBackup(await createBackup(repo)));
+    b.collections.weights.push(b.collections.weights[0]);
+    expect(parseBackup(JSON.stringify(b)).ok).toBe(false);
+  });
+});
+
+describe('merge compares instants, not strings', () => {
+  it('a later edit in another UTC offset still wins', async () => {
+    const device = createMemoryRepository({
+      now: () => '2026-10-25T02:30:00.000+02:00' as IsoDateTime, // 00:30Z
+    });
+    const a = await device.add('weights', weight('2026-10-25', 80));
+    if (!a.ok) throw new Error();
+    const backup = await createBackup(device);
+    // 02:10+01:00 = 01:10Z, which is LATER than 00:30Z although the string sorts lower
+    backup.collections.weights[0] = {
+      ...backup.collections.weights[0]!,
+      kg: 79.9,
+      updatedAt: '2026-10-25T02:10:00.000+01:00' as IsoDateTime,
+    };
+    const res = await restoreBackup(device, backup, 'merge');
+    expect(res.ok && res.value.updated).toBe(1);
+    expect((await device.list('weights'))[0]?.kg).toBe(79.9);
+  });
+});

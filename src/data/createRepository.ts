@@ -16,11 +16,14 @@ import {
   type Profile,
   type RecordMeta,
   type Repository,
+  type RepositoryBatch,
+  validateFullProfile,
+  validateFullSettings,
   type Settings,
   validateProfile,
   validateSettings,
 } from '../core';
-import type { StorageBackend } from './backend';
+import type { MetaKey, StorageBackend } from './backend';
 import {
   clone,
   compareRecords,
@@ -137,14 +140,47 @@ export function createRepository(
     },
 
     async putMany(collection, records) {
-      for (const r of records) {
-        const v = validateStoredRecord(collection, r);
+      return repo.commitBatch({ records: { [collection]: records } });
+    },
+
+    async commitBatch(batch: RepositoryBatch) {
+      let count = 0;
+      for (const [c, records] of Object.entries(batch.records) as [CollectionName, AnyRecord[]][]) {
+        for (const r of records ?? []) {
+          const v = validateStoredRecord(c, r);
+          if (!v.ok) return v;
+          count++;
+        }
+      }
+      if (batch.settings) {
+        const v = validateFullSettings(batch.settings);
         if (!v.ok) return v;
       }
-      if (records.length === 0) return ok(0);
-      await backend.put(collection, clone(records) as AnyRecord[]);
-      emit({ type: 'bulk', collection, count: records.length });
-      return ok(records.length);
+      if (batch.profile) {
+        const v = validateFullProfile(batch.profile);
+        if (!v.ok) return v;
+      }
+      const meta: Partial<Record<MetaKey, unknown>> = {};
+      if (batch.settings) meta.settings = clone(batch.settings);
+      if (batch.profile) meta.profile = clone(batch.profile);
+      if (count === 0 && !batch.replaceAll && !batch.settings && !batch.profile) return ok(0);
+      await backend.commit({
+        ...(batch.replaceAll ? { clearAll: true } : {}),
+        put: clone(batch.records) as Partial<Record<CollectionName, AnyRecord[]>>,
+        meta,
+      });
+      if (batch.replaceAll) emit({ type: 'reset' });
+      else {
+        for (const [c, records] of Object.entries(batch.records) as [
+          CollectionName,
+          AnyRecord[],
+        ][]) {
+          if (records?.length) emit({ type: 'bulk', collection: c, count: records.length });
+        }
+        if (batch.settings) emit({ type: 'settings' });
+        if (batch.profile) emit({ type: 'profile' });
+      }
+      return ok(count);
     },
 
     async findByDedupeKeys<C extends CollectionName>(collection: C, keys: string[]) {

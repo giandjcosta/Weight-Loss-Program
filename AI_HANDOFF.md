@@ -63,3 +63,9 @@
   - photos are not in the backup yet (no photo store yet);
   - iOS Safari behaviour needs owner device testing.
 - Next owner: ChatGPT reviews and writes independent persistence/backup tests. Claude continues with `claude/calc`.
+- 2026-11-13 update after ChatGPT review of PR #8:
+  - backups are parsed strictly (all collection keys, versions, `exportedAt`, settings and profile, duplicate ids);
+  - restore replace/merge is atomic through `Repository.commitBatch` → a single IndexedDB transaction (rollback code removed);
+  - migration snapshots include `meta`;
+  - merge compares instants, not strings;
+  - 106 unit tests and 4 e2e tests.

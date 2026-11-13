@@ -5,7 +5,7 @@
 import { parseDayKey, parseIsoDateTime } from './dates';
 import { msg } from './messages';
 import { err, ok, type Result } from './result';
-import type { CollectionName, Profile, Settings } from './types';
+import { SCHEMA_VERSION, type CollectionName, type Profile, type Settings } from './types';
 import { PLAUSIBLE } from './units';
 
 type Rec = Record<string, unknown>;
@@ -220,4 +220,51 @@ export function validateProfile(p: Partial<Profile>): Result<true> {
     () => check('heightCm', value(p.heightCm), 'heightCm', 'cm'),
     () => check('birthYear', value(p.birthYear), 'birthYear', ''),
   );
+}
+
+const oneOf = (v: unknown, values: readonly string[]) =>
+  typeof v === 'string' && values.includes(v);
+
+/** A complete stored Settings document (backup restore): shape + values. */
+export function validateFullSettings(value: unknown): Result<true> {
+  const bad = () => err<true>(msg('validation.inconsistent', { fields: ['settings'] }));
+  if (!isObj(value)) return bad();
+  const s = value as Rec;
+  const u = s.units;
+  if (
+    s.schemaVersion !== SCHEMA_VERSION ||
+    !parseIsoDateTime(String(s.updatedAt)) ||
+    !oneOf(s.locale, ['it', 'en']) ||
+    !oneOf(s.theme, ['dark', 'light', 'system']) ||
+    !oneOf(s.progressPalette, ['neutral', 'warm_to_green', 'custom']) ||
+    !oneOf(s.appIcon, ['primary', 'bars']) ||
+    !isObj(u) ||
+    !oneOf(u.weight, ['kg', 'lb']) ||
+    !oneOf(u.length, ['cm', 'in']) ||
+    !oneOf(u.volume, ['ml', 'fl_oz']) ||
+    !oneOf(u.distance, ['km', 'mi']) ||
+    !oneOf(u.energy, ['kcal', 'kj'])
+  ) {
+    return bad();
+  }
+  for (const k of ['onboardingCompletedAt', 'lastBackupAt']) {
+    if (s[k] !== undefined && !parseIsoDateTime(String(s[k]))) return bad();
+  }
+  return validateSettings(s as Partial<Settings>);
+}
+
+/** A complete stored Profile document (backup restore): shape + values. */
+export function validateFullProfile(value: unknown): Result<true> {
+  const bad = () => err<true>(msg('validation.inconsistent', { fields: ['profile'] }));
+  if (!isObj(value)) return bad();
+  const p = value as Rec;
+  if (p.schemaVersion !== SCHEMA_VERSION || !parseIsoDateTime(String(p.updatedAt))) return bad();
+  const answerOk = (a: unknown) =>
+    a === undefined ||
+    (isObj(a) &&
+      oneOf(a.kind, ['value', 'unknown', 'not_measured', 'declined']) &&
+      (a.kind !== 'value' || 'value' in a));
+  for (const k of ['heightCm', 'birthYear', 'sex', 'activityLevel'])
+    if (!answerOk(p[k])) return bad();
+  return validateProfile(p as Partial<Profile>);
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { DayKey, TimeZone } from '../../core';
 import { runRepositoryContract } from '../repositoryContract';
 import { openIndexedDbRepository } from './indexedDbRepository';
-import { listMigrationSnapshots, openDatabase } from './idbBackend';
+import { createIndexedDbBackend, listMigrationSnapshots, openDatabase } from './idbBackend';
 import { MIGRATIONS } from './schema';
 
 let n = 0;
@@ -124,5 +124,42 @@ describe('IndexedDB migrations', () => {
     await expect(
       openDatabase({ name: uniqueName(), version: 3, migrations: MIGRATIONS }),
     ).rejects.toThrow(/Missing IndexedDB migration/);
+  });
+});
+
+describe('atomic batches (crash safety)', () => {
+  it('a failing replace batch leaves every store, settings included, untouched', async () => {
+    const name = uniqueName();
+    const repo = await openIndexedDbRepository({ name });
+    await repo.add('weights', weight('2026-09-01', 80));
+    await repo.saveSettings({ locale: 'en' });
+    const db = await openDatabase({ name });
+    const backend = createIndexedDbBackend(db);
+    const [existing] = await repo.list('weights');
+    // a non-cloneable value makes IndexedDB throw mid-transaction (like a storage failure)
+    const poisoned = { ...existing!, id: 'p1', note: () => 'not cloneable' } as never;
+    await expect(
+      backend.commit({
+        clearAll: true,
+        put: { weights: [existing!, poisoned] },
+        meta: { settings: {} },
+      }),
+    ).rejects.toBeDefined();
+    expect((await repo.list('weights')).map((w) => w.kg)).toEqual([80]);
+    expect((await repo.getSettings()).locale).toBe('en');
+    db.close();
+    repo.close();
+  });
+
+  it('migration snapshots include settings and profile (meta store)', async () => {
+    const name = uniqueName();
+    const v1 = await openIndexedDbRepository({ name });
+    await v1.saveSettings({ locale: 'en' });
+    v1.close();
+    const db = await openDatabase({ name, version: 2, migrations: { ...MIGRATIONS, 2: () => {} } });
+    const [snap] = await listMigrationSnapshots(db);
+    const meta = snap?.data.meta as { key: string; value: { locale?: string } }[];
+    expect(meta.find((m) => m.key === 'settings')?.value.locale).toBe('en');
+    db.close();
   });
 });

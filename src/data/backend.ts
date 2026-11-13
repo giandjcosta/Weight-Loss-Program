@@ -23,4 +23,16 @@ export interface StorageBackend {
   putMeta<T>(key: MetaKey, value: T): Promise<void>;
   /** Remove all records and meta. Atomic. */
   clear(): Promise<void>;
+  /**
+   * Apply a whole batch in ONE atomic unit (a single IndexedDB transaction): optionally wipe
+   * everything, then write records into several collections and meta. If anything fails —
+   * including the page or browser being killed midway — nothing of the batch is applied.
+   */
+  commit(batch: BackendBatch): Promise<void>;
+}
+
+export interface BackendBatch {
+  clearAll?: boolean;
+  put: Partial<Record<CollectionName, AnyRecord[]>>;
+  meta?: Partial<Record<MetaKey, unknown>>;
 }

@@ -14,6 +14,16 @@ export type SettingsPatch = Partial<Omit<Settings, 'schemaVersion' | 'updatedAt'
   units?: Partial<Settings['units']>;
 };
 
+/** Several writes applied as one atomic unit (see `Repository.commitBatch`). */
+export interface RepositoryBatch {
+  /** Wipe all records, settings and profile first (full restore). */
+  replaceAll?: boolean;
+  /** Complete records (ids and timestamps kept), per collection. */
+  records: { [C in CollectionName]?: CollectionMap[C][] };
+  settings?: Settings;
+  profile?: Profile;
+}
+
 export interface ListQuery {
   /** Inclusive day range on `dayKey` (or `effectiveFrom` for goals/targets). */
   from?: DayKey;
@@ -69,6 +79,12 @@ export interface Repository {
     collection: C,
     records: CollectionMap[C][],
   ): Promise<Result<number>>;
+  /**
+   * Validate EVERYTHING first, then apply the batch atomically (one storage transaction):
+   * either the whole batch is applied or nothing is — also if the app is closed midway.
+   * Used for backup restore (replace or merge) and imports.
+   */
+  commitBatch(batch: RepositoryBatch): Promise<Result<number>>;
   /** Records whose `dedupeKey` is in `keys` (deleted included), for import de-duplication. */
   findByDedupeKeys<C extends CollectionName>(
     collection: C,

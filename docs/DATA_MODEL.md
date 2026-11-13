@@ -100,19 +100,29 @@ Before inserting, the importer calls `findByDedupeKeys`; matches (including soft
 
 - **IndexedDB** (`src/data/indexedDb`). The real database is named `ritmea`; demo mode and tests use other names, so they never mix. There is one object store per collection (keyPath `id`, with a `dedupeKey` index), a `meta` store (settings, profile) and `preMigrationSnapshots`.
 - **Upgrades.** `DB_VERSION` plus ordered `MIGRATIONS[v]` steps run inside the single `versionchange` transaction:
-  - before any step, every existing store is copied into `preMigrationSnapshots`;
+  - before any step, **every store, `meta` (settings and profile) included,** is copied into `preMigrationSnapshots`;
   - if a step throws, the whole upgrade aborts and the old data and version stay untouched;
   - a missing step refuses to open;
-  - another tab holding the old version is asked to close (`onversionchange`).
-- **Backups** (`src/data/backup.ts`) are JSON files `ritmea-backup-YYYY-MM-DD.json` containing all records (soft-deleted included), settings and profile, plus `formatVersion`/`schemaVersion` and a `containsDemoData` flag. `parseBackup`:
-  - rejects files from newer app versions;
-  - rejects the **whole** file if any record is invalid;
-  - upgrades old record versions through `RECORD_MIGRATIONS`.
-- **Restore modes:**
-  - `replace`: the device becomes exactly the backup; on failure the previous state is written back;
-  - `merge`: match by id and keep the newer `updatedAt`; device settings are kept.
+  - other tabs are asked to close.
+- **Atomic batches.** `Repository.commitBatch` validates everything first, then writes through `StorageBackend.commit` in **one IndexedDB transaction** across all touched stores, the optional wipe included. A failure, or the page being closed midway, leaves the database as it was: IndexedDB transactions are all-or-nothing. `putMany` is a one-collection batch.
+- **Backups** (`src/data/backup.ts`) are JSON files `ritmea-backup-YYYY-MM-DD.json` containing all records (soft-deleted included), settings, profile, `formatVersion`/`schemaVersion` and `containsDemoData`.
+- **`parseBackup` validates the whole file before anything destructive.** It checks:
+  - integer versions ≥ 1, refusing newer ones;
+  - a real ISO `exportedAt` and a boolean `containsDemoData`;
+  - **every collection key present**: a truncated file is refused, not treated as empty;
+  - every record valid, with no duplicate ids;
+  - complete, valid settings and profile.
+
+  Old record versions are upgraded through `RECORD_MIGRATIONS`.
+
+- **Restore modes** (both atomic through `commitBatch`):
+  - `replace`: the device becomes exactly the backup;
+  - `merge`: match by id; the later `updatedAt` **instant** wins (compared as instants, not strings); device settings are kept.
+
+  The merge reads current records and then commits. A write made in another tab between those two steps is not taken into account, which is acceptable for a single-user, user-initiated action.
+
 - **Durability helpers** (`src/data/persistence.ts`): `requestPersistentStorage()`, `isStoragePersisted()`, `storageEstimate()`, `daysSinceBackup()`. On iOS, non-installed sites can be evicted. The UI should recommend installing to the Home Screen and taking regular backups.
-- `.gitignore` ignores `ritmea-backup-*.json`, so a backup can't be committed to this public repo by accident.
+- `.gitignore` ignores `ritmea-backup-*.json`.
 
 ## Synthetic data
 

@@ -1,9 +1,9 @@
-import { COLLECTIONS, type CollectionName } from '../../core';
+import { COLLECTIONS } from '../../core';
 
 /** Bump when the IndexedDB structure or stored record shape changes; add a migration below. */
 export const DB_VERSION = 1;
 export const META_STORE = 'meta';
-/** Copies of every store taken right before an upgrade from an existing version. */
+/** Copies of every store (collections + meta) taken right before an upgrade. */
 export const SNAPSHOT_STORE = 'preMigrationSnapshots';
 
 export interface MigrationContext {
@@ -35,7 +35,7 @@ export const MIGRATIONS: Migrations = {
 };
 
 /**
- * Copy every record of every existing collection into the snapshot store, in the same
+ * Copy every record of every existing store (collections and meta) into the snapshot store, in the same
  * versionchange transaction, before migrations change anything.
  */
 export function snapshotBeforeMigration(tx: IDBTransaction, db: IDBDatabase, oldVersion: number) {
@@ -45,14 +45,24 @@ export function snapshotBeforeMigration(tx: IDBTransaction, db: IDBDatabase, old
     takenAt: new Date().toISOString(),
     data: {},
   };
-  const names = [...db.objectStoreNames].filter(
-    (n) => n !== SNAPSHOT_STORE && (COLLECTIONS as readonly string[]).includes(n),
-  ) as CollectionName[];
+  // every existing store except the snapshot store itself: collections AND `meta`
+  // (settings, profile); meta is keyed out-of-line, so keys are captured alongside values
+  const names = [...db.objectStoreNames].filter((n) => n !== SNAPSHOT_STORE);
   let pending = names.length;
   const write = () => tx.objectStore(SNAPSHOT_STORE).put(snapshot);
   if (pending === 0) return write();
   for (const name of names) {
-    const req = tx.objectStore(name).getAll();
+    const store = tx.objectStore(name);
+    if (name === META_STORE) {
+      const keys = store.getAllKeys();
+      const values = store.getAll();
+      values.onsuccess = () => {
+        snapshot.data[name] = keys.result.map((k, i) => ({ key: k, value: values.result[i] }));
+        if (--pending === 0) write();
+      };
+      continue;
+    }
+    const req = store.getAll();
     req.onsuccess = () => {
       snapshot.data[name] = req.result;
       if (--pending === 0) write();

@@ -127,6 +127,34 @@ export function createIndexedDbBackend(db: IDBDatabase, isPersistent = false): S
       t.objectStore(META_STORE).put(value, key);
       await done(t);
     },
+    async commit(batch) {
+      const touched = new Set<string>([
+        ...Object.keys(batch.put),
+        ...(batch.meta && Object.keys(batch.meta).length ? [META_STORE] : []),
+      ]);
+      const names = batch.clearAll
+        ? [...db.objectStoreNames].filter((n) => n !== SNAPSHOT_STORE)
+        : [...touched];
+      if (names.length === 0) return;
+      const t = tx(names, 'readwrite');
+      const finished = done(t);
+      try {
+        if (batch.clearAll) for (const n of names) t.objectStore(n).clear();
+        for (const [c, records] of Object.entries(batch.put)) {
+          const store = t.objectStore(c);
+          for (const r of records ?? []) store.put(r);
+        }
+        for (const [k, v] of Object.entries(batch.meta ?? {})) {
+          t.objectStore(META_STORE).put(v, k);
+        }
+      } catch (error) {
+        // e.g. DataCloneError: abort so the whole batch (including the clear) is discarded
+        t.abort();
+        await finished.catch(() => undefined);
+        throw error;
+      }
+      await finished;
+    },
     async clear() {
       const names = [...db.objectStoreNames].filter((n) => n !== SNAPSHOT_STORE);
       const t = tx(names, 'readwrite');

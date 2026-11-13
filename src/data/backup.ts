@@ -11,6 +11,10 @@ import {
   type IsoDateTime,
   type Profile,
   type Repository,
+  type RepositoryBatch,
+  parseIsoDateTime,
+  validateFullProfile,
+  validateFullSettings,
   type Result,
   type Settings,
 } from '../core';
@@ -80,57 +84,86 @@ export const backupFileName = (exportedAt: string): string =>
 
 export const serializeBackup = (b: RitmeaBackup): string => JSON.stringify(b, null, 1);
 
-/** Parse and validate a backup file. Never partially accepts a malformed file. */
+/**
+ * Parse and validate a backup file COMPLETELY before anything destructive can happen:
+ * format and integer versions, `exportedAt`, every collection key present (a truncated file
+ * is refused, not treated as "empty"), every record, settings and profile. Never partially
+ * accepts a file.
+ */
 export function parseBackup(
   text: string,
   recordMigrations: RecordMigrations = RECORD_MIGRATIONS,
 ): Result<RitmeaBackup> {
+  const malformed = () => err<RitmeaBackup>(msg('import.malformed', {}));
+  const unsupported = () => err<RitmeaBackup>(msg('import.unsupported_format', { fileName: '' }));
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    return err(msg('import.malformed', {}));
+    return malformed();
   }
-  if (typeof raw !== 'object' || raw === null) return err(msg('import.malformed', {}));
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return malformed();
   const b = raw as Record<string, unknown>;
-  if (b.format !== BACKUP_FORMAT || typeof b.formatVersion !== 'number') {
-    return err(msg('import.unsupported_format', { fileName: '' }));
-  }
-  if (b.formatVersion > BACKUP_FORMAT_VERSION || Number(b.schemaVersion) > SCHEMA_VERSION) {
+  if (b.format !== BACKUP_FORMAT) return unsupported();
+  const isVersion = (v: unknown) => typeof v === 'number' && Number.isInteger(v) && v >= 1;
+  if (!isVersion(b.formatVersion) || !isVersion(b.schemaVersion)) return malformed();
+  if (
+    (b.formatVersion as number) > BACKUP_FORMAT_VERSION ||
+    (b.schemaVersion as number) > SCHEMA_VERSION
+  ) {
     // Made by a newer app version: refuse rather than silently drop unknown fields.
-    return err(msg('import.unsupported_format', { fileName: '' }));
+    return unsupported();
   }
-  if (typeof b.collections !== 'object' || b.collections === null) {
-    return err(msg('import.malformed', {}));
+  if (typeof b.exportedAt !== 'string' || !parseIsoDateTime(b.exportedAt)) return malformed();
+  if (typeof b.containsDemoData !== 'boolean') return malformed();
+  if (typeof b.collections !== 'object' || b.collections === null || Array.isArray(b.collections)) {
+    return malformed();
   }
   const src = b.collections as Record<string, unknown>;
   const collections = {} as Record<CollectionName, AnyRecord[]>;
   for (const c of COLLECTIONS) {
-    const list = src[c] ?? [];
-    if (!Array.isArray(list)) return err(msg('import.malformed', {}));
+    // Every collection known to this format version must be present (possibly empty).
+    if (!(c in src)) return malformed();
+    const list = src[c];
+    if (!Array.isArray(list)) return malformed();
     const upgraded: AnyRecord[] = [];
+    const ids = new Set<string>();
     for (const item of list) {
+      if (typeof item !== 'object' || item === null) return malformed();
       let rec = item as Record<string, unknown>;
-      const from = typeof rec?.schemaVersion === 'number' ? rec.schemaVersion : NaN;
-      if (Number.isNaN(from) || from > SCHEMA_VERSION) return err(msg('import.malformed', {}));
+      const from = rec.schemaVersion;
+      if (
+        typeof from !== 'number' ||
+        !Number.isInteger(from) ||
+        from < 0 ||
+        from > SCHEMA_VERSION
+      ) {
+        return malformed();
+      }
       for (let v = from + 1; v <= SCHEMA_VERSION; v++) {
         const step = recordMigrations[v];
-        if (!step) return err(msg('import.unsupported_format', { fileName: '' }));
+        if (!step) return unsupported();
         rec = { ...step(c, rec), schemaVersion: v };
       }
       const valid = validateStoredRecord(c, rec);
       if (!valid.ok) return valid;
+      if (ids.has(String(rec.id))) return malformed(); // duplicate id in one collection
+      ids.add(String(rec.id));
       upgraded.push(rec as unknown as AnyRecord);
     }
     collections[c] = upgraded;
   }
+  const settingsOk = validateFullSettings(b.settings);
+  if (!settingsOk.ok) return settingsOk;
+  const profileOk = validateFullProfile(b.profile);
+  if (!profileOk.ok) return profileOk;
   return ok({
     format: BACKUP_FORMAT,
     formatVersion: BACKUP_FORMAT_VERSION,
-    app: String(b.app ?? APP_NAME),
+    app: typeof b.app === 'string' ? b.app : APP_NAME,
     schemaVersion: SCHEMA_VERSION,
-    exportedAt: String(b.exportedAt ?? '') as IsoDateTime,
-    containsDemoData: Boolean(b.containsDemoData),
+    exportedAt: b.exportedAt as IsoDateTime,
+    containsDemoData: b.containsDemoData,
     settings: b.settings as Settings,
     profile: b.profile as Profile,
     collections: collections as RitmeaBackup['collections'],
@@ -138,9 +171,10 @@ export function parseBackup(
 }
 
 /**
- * Restore a parsed backup.
- * - `replace`: the device ends up exactly like the backup (settings and profile included).
- *   If anything fails midway, the previous state is written back.
+ * Restore a parsed backup. Both modes are ATOMIC: everything is validated first and written in
+ * one storage transaction (`Repository.commitBatch`), so a failure — or the app being closed
+ * midway — leaves the device exactly as it was.
+ * - `replace`: the device becomes exactly the backup (records, settings, profile).
  * - `merge`: records are matched by id; the version with the newer `updatedAt` wins (a newer
  *   deletion wins too). Settings and profile on this device are kept.
  */
@@ -152,17 +186,21 @@ export async function restoreBackup(
   const summary: RestoreSummary = { mode, added: 0, updated: 0, unchanged: 0, byCollection: {} };
 
   if (mode === 'replace') {
-    const previous = await createBackup(repo);
-    try {
-      await writeAll(repo, backup, summary);
-      return ok(summary);
-    } catch (error) {
-      console.error('Ritmea: restore failed, rolling back', error);
-      await writeAll(repo, previous, { ...summary });
-      return err(msg('repo.storage_unavailable', {}));
+    for (const c of COLLECTIONS) {
+      const n = backup.collections[c].length;
+      if (n) summary.byCollection[c] = n;
+      summary.added += n;
     }
+    const res = await repo.commitBatch({
+      replaceAll: true,
+      records: backup.collections,
+      settings: backup.settings,
+      profile: backup.profile,
+    });
+    return res.ok ? ok(summary) : res;
   }
 
+  const records: RepositoryBatch['records'] = {};
   for (const c of COLLECTIONS) {
     const incoming = backup.collections[c] as AnyRecord[];
     if (incoming.length === 0) continue;
@@ -175,33 +213,19 @@ export async function restoreBackup(
       if (!existing) {
         summary.added++;
         toWrite.push(r);
-      } else if (r.updatedAt > existing.updatedAt) {
+      } else if (Date.parse(r.updatedAt) > Date.parse(existing.updatedAt)) {
+        // compare instants, not strings: offsets may differ (+01:00 vs +02:00)
         summary.updated++;
         toWrite.push(r);
       } else {
         summary.unchanged++;
       }
     }
-    const res = await repo.putMany(c, toWrite as never);
-    if (!res.ok) return res;
-    if (toWrite.length) summary.byCollection[c] = toWrite.length;
+    if (toWrite.length) {
+      (records as Record<string, AnyRecord[]>)[c] = toWrite;
+      summary.byCollection[c] = toWrite.length;
+    }
   }
-  return ok(summary);
-}
-
-async function writeAll(repo: Repository, backup: RitmeaBackup, summary: RestoreSummary) {
-  await repo.reset();
-  for (const c of COLLECTIONS) {
-    const records = backup.collections[c];
-    const res = await repo.putMany(c, records as never);
-    if (!res.ok) throw new Error(`Restore of ${c} rejected: ${res.error.code}`);
-    if (records.length) summary.byCollection[c] = records.length;
-    summary.added += records.length;
-  }
-  const { schemaVersion: _s, updatedAt: _u, ...settings } = backup.settings;
-  const { schemaVersion: _ps, updatedAt: _pu, ...profile } = backup.profile;
-  const s = await repo.saveSettings(settings);
-  if (!s.ok) throw new Error(`Restore of settings rejected: ${s.error.code}`);
-  const p = await repo.saveProfile(profile);
-  if (!p.ok) throw new Error(`Restore of profile rejected: ${p.error.code}`);
+  const res = await repo.commitBatch({ records });
+  return res.ok ? ok(summary) : res;
 }
