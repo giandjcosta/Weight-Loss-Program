@@ -53,3 +53,7 @@ Do not enable a public deployment before reviewing the initial PR and confirming
 - [Lifesum → Apple Health syncing](https://help.lifesum.com/en/article/how-to-connect-to-and-sync-with-apple-health-ios-eagtau/)
 - [Apple HealthKit](https://developer.apple.com/documentation/healthkit/)
 - [Open Food Facts](https://world.openfoodfacts.org/)
+
+## Development (Ritmea)
+
+The app is being rebuilt as **Ritmea** (Vite + TypeScript + Preact). The foundation PR contains shared contracts and tooling only. See [CONTRIBUTING.md](CONTRIBUTING.md) for commands and module ownership, and [docs/DATA_MODEL.md](docs/DATA_MODEL.md) for the data rules.

@@ -1,0 +1,12 @@
+dist
+node_modules
+design
+package-lock.json
+test-results
+playwright-report
+# Owner/shared docs: keep their original formatting
+README.md
+AGENTS.md
+CLAUDE.md
+AI_HANDOFF.md
+docs/PROMPT_*.md
