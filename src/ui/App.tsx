@@ -464,13 +464,15 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     let active = true;
+    let revision = 0;
     const refresh = () => {
+      const thisRevision = ++revision;
       void readSnapshot(repository)
         .then((s) => {
-          if (active) setData(s);
+          if (active && thisRevision === revision) setData(s);
         })
         .catch(() => {
-          if (active) setMessage('Errore nella lettura della demo.');
+          if (active && thisRevision === revision) setMessage('Errore nella lettura della demo.');
         });
     };
     refresh();
