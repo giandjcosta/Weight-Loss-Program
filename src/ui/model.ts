@@ -127,3 +127,51 @@ export function statusDescription(
     complete: 'Registrazione completa',
   }[code];
 }
+
+/** Italian labels for stored enum values (until `src/i18n` lands). */
+export const DIRECTION_LABEL: Record<GoalEntry['direction'], string> = {
+  lose: 'Dimagrimento',
+  gain: 'Aumento',
+  maintain: 'Mantenimento',
+  recomp: 'Ricomposizione',
+};
+export const WORKOUT_STATUS_LABEL: Record<WorkoutSession['status'], string> = {
+  completed: 'Completato',
+  skipped: 'Saltato',
+  rescheduled: 'Riprogrammato',
+};
+
+/**
+ * Patch for editing a workout from the simple form. The form only knows title, status,
+ * duration, reschedule date and treadmill minutes, so everything else already stored
+ * (exercises with sets/loads, treadmill distance/incline, other cardio) must be preserved.
+ */
+export function workoutEditPatch(
+  current: WorkoutSession,
+  form: {
+    dayKey: DayKey;
+    title: string;
+    status: WorkoutSession['status'];
+    durationMin: number | undefined;
+    rescheduledTo: DayKey | undefined;
+    treadmillMinutes: number | undefined;
+  },
+): Partial<WorkoutSession> {
+  const others = current.cardio.filter((c) => c.kind !== 'treadmill');
+  const prev = current.cardio.find((c) => c.kind === 'treadmill');
+  const cardio =
+    form.treadmillMinutes === undefined
+      ? others
+      : [
+          ...others,
+          { ...(prev ?? { kind: 'treadmill' as const }), minutes: form.treadmillMinutes },
+        ];
+  return {
+    dayKey: form.dayKey,
+    title: form.title,
+    status: form.status,
+    cardio,
+    durationMin: form.durationMin,
+    rescheduledTo: form.status === 'rescheduled' ? form.rescheduledTo : undefined,
+  } as Partial<WorkoutSession>;
+}

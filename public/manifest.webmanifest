@@ -1,0 +1,31 @@
+{
+  "name": "Ritmea",
+  "short_name": "Ritmea",
+  "description": "Ritmea Alpha 0.1 — demo con dati sintetici.",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#171B1C",
+  "theme_color": "#171B1C",
+  "icons": [
+    {
+      "src": "icons/ritmea-primary-pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/ritmea-primary-pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/ritmea-primary-pwa-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
