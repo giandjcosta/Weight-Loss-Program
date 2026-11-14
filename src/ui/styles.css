@@ -789,3 +789,24 @@ select:focus-visible {
   line-height: 1.5;
   color: var(--text);
 }
+
+
+/* Alpha readability: tabular figures and visually subordinate units. */
+.metric strong,
+.entry > b,
+.big-value,
+.progress-row b,
+.graph text,
+.amounts button {
+  font-variant-numeric: tabular-nums;
+}
+.metric strong .unit,
+.entry > b .unit {
+  font-size: 0.48em;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.sidebar {
+  min-height: 100dvh;
+}
