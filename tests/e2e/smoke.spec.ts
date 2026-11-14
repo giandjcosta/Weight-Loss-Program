@@ -33,8 +33,9 @@ test('day change and adding water update the demo diary', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
-
-test('meal can be added, edited, and removed without losing unknown nutrients', async ({ page }) => {
+test('meal can be added, edited, and removed without losing unknown nutrients', async ({
+  page,
+}) => {
   await page.goto('./');
   await page.locator('button[data-page="diary"]:visible').first().click();
   await page.getByRole('button', { name: '＋ Pasto', exact: true }).click();
