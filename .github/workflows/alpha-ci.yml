@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   unit-build:
@@ -23,25 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: One-time alpha dependency lock and formatting
-        if: github.event.pull_request.head.repo.full_name == 'giandjcosta/Weight-Loss-Program' && github.head_ref == 'codex/alpha-release-readiness'
-        run: |
-          npm install --save-exact @fontsource-variable/inter@5.3.0
-          npx prettier --write src/ui/App.tsx src/ui/styles.css src/main.tsx tests/e2e/smoke.spec.ts
-          if ! git diff --quiet; then
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add package.json package-lock.json src/ui/App.tsx src/ui/styles.css src/main.tsx tests/e2e/smoke.spec.ts
-            git commit -m 'ChatGPT: lock self-hosted Inter and format alpha readiness fixes'
-            git push origin HEAD:refs/heads/codex/alpha-release-readiness
-          fi
       - run: npm run check
       - run: npm run build
 
