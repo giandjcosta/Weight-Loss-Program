@@ -66,9 +66,9 @@ function Row({title,caption,amount,edit,remove}:{title:string;caption:string;amo
       {remove && <button type="button" aria-label={'Elimina '+title} onClick={remove}>×</button>}</div></div>;
 }
 function Field({label,name,value='',type='text',required=false}:{label:string;name:string;value?:string|number;type?:string;required?:boolean}){
-  return <label class="form-field">{label}<input type={type} name={name} defaultValue={value} required={required} inputMode={type==='text'?'decimal':undefined}/></label>;
+  return <label class="form-field">{label}<input type={type} name={name} defaultValue={value} required={required} inputMode={['kg','kcal','protein','carbs','fat','duration','treadmill','startKg','targetKg','band','height'].includes(name)?'decimal':undefined}/></label>;
 }
-function DialogForm({dialog,data,day,close,save}:{dialog:Dialog;data:UiSnapshot;day:DayKey;close:()=>void;save:(fd:FormData)=>Promise<void>}){
+function DialogForm({dialog,data,day,close,save,error}:{dialog:Dialog;data:UiSnapshot;day:DayKey;close:()=>void;save:(fd:FormData)=>Promise<void>;error:string}){
   const old=dialog.id?(dialog.kind==='weight'?data.weights.find(x=>x.id===dialog.id):
     dialog.kind==='meal'?data.meals.find(x=>x.id===dialog.id):data.workouts.find(x=>x.id===dialog.id)):undefined;
   const weight=dialog.kind==='weight'?old as WeightEntry|undefined:undefined;
@@ -78,7 +78,7 @@ function DialogForm({dialog,data,day,close,save}:{dialog:Dialog;data:UiSnapshot;
   const title={weight:'Registra peso',meal:'Aggiungi pasto',workout:'Allenamento',goal:'Nuovo obiettivo'}[dialog.kind];
   return <div class="overlay" onClick={close}><section role="dialog" aria-modal="true" aria-label={title} class="dialog" onClick={e=>e.stopPropagation()}>
     <header><div><span class="eyebrow">SESSIONE DEMO</span><h2>{title}</h2></div><button type="button" class="icon-button" onClick={close} aria-label="Chiudi">×</button></header>
-    <form onSubmit={e=>{e.preventDefault();void save(new FormData(e.currentTarget));}}>
+    <form onSubmit={e=>{e.preventDefault();void save(new FormData(e.currentTarget));}}>{error && <div class="dialog-error" role="alert">{error}</div>}
       <Field label="Data" name="day" type="date" required value={date}/>
       {dialog.kind==='weight' && <><Field label="Peso in kg" name="kg" required value={weight?.kg??''}/>
         <Field label="Nota (facoltativa)" name="note" value={weight?.note??''}/></>}
@@ -122,7 +122,7 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
     catch(error){setMessage(error instanceof Error?error.message:'Operazione non riuscita.')}
     finally{setBusy(false)}
   }
-  function open(kind:Kind,id?:Id){setDialog(id?{kind,id}:{kind})}
+  function open(kind:Kind,id?:Id){setMessage('');setDialog(id?{kind,id}:{kind})}
   async function water(ml:number){
     await execute(async()=>{check(await repository.add('water',{dayKey:day,timeZone:deviceTimeZone(),ml,source}));},'Acqua aggiunta alla demo.');
   }
@@ -270,7 +270,7 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
               <button class="btn soft full" onClick={reset}>↻ Ripristina dati demo</button><button class="btn soft full" onClick={()=>open('goal')}>＋ Aggiungi un nuovo obiettivo</button></Card></div></div>}
       </>}</main></div></div>
       <nav class="mobile-nav" aria-label="Navigazione mobile">{nav.map(item=><button data-page={item.id} key={item.id} onClick={()=>setPage(item.id)} aria-current={page===item.id?'page':undefined} class={page===item.id?'active':''}><span aria-hidden="true">{item.icon}</span><small>{item.short}</small></button>)}</nav>
-      {dialog&&data&&<DialogForm key={dialog.kind+String(dialog.id??'new')} dialog={dialog} data={data} day={day} close={()=>setDialog(undefined)} save={save}/>}
+      {dialog&&data&&<DialogForm key={dialog.kind+String(dialog.id??'new')} dialog={dialog} data={data} day={day} close={()=>setDialog(undefined)} save={save} error={message}/>}
       {busy&&<div class="saving" role="status">Salvataggio demo…</div>}
     </div>;
 }
