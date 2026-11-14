@@ -142,7 +142,8 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
       const date=parseDayKey(String(fd.get('day')??''));
       if(!date)throw Error('Data non valida.');
       if(dialog.kind==='weight'){
-        const kg=numeric(fd.get('kg'),true)!;
+        const kg = numeric(fd.get('kg'), true);
+        if (kg === undefined) throw Error('Inserisci un peso valido.');
         const note=String(fd.get('note')??'').trim();
         if(dialog.id)check(await repository.update('weights',dialog.id,{dayKey:date,kg,note}));
         else check(await repository.add('weights',{dayKey:date,timeZone:deviceTimeZone(),kg,quality:'measured',note,source}));
@@ -156,8 +157,14 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
         if(dialog.id){
           const patch:Record<string,unknown>={...fields};
           // Clear previously present optional nutrients when their field is emptied.
-          for(const [input,key] of [['kcal','kcal'],['protein','proteinG'],['carbs','carbsG'],['fat','fatG']]){
-            if(String(fd.get(input)??'').trim()==='')patch[key]=undefined;
+          const optionalNutrientFields = [
+            ['kcal', 'kcal'],
+            ['protein', 'proteinG'],
+            ['carbs', 'carbsG'],
+            ['fat', 'fatG'],
+          ] as const;
+          for (const [input, key] of optionalNutrientFields) {
+            if (String(fd.get(input) ?? '').trim() === '') patch[key] = undefined;
           }
           check(await repository.update('meals',dialog.id,patch as never));
         }else check(await repository.add('meals',{...fields,timeZone:deviceTimeZone(),quality:'estimated',source}));
