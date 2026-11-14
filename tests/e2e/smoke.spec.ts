@@ -89,8 +89,9 @@ test('workout edit, reset, and demo-only storage work in desktop and mobile', as
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
 
-
-test('the dialog traps keyboard focus, restores it on close and explains invalid weight in Italian', async ({ page }) => {
+test('the dialog traps keyboard focus, restores it on close and explains invalid weight in Italian', async ({
+  page,
+}) => {
   await page.goto('./');
   const trigger = page.getByRole('button', { name: /Registra peso/ });
   await trigger.click();

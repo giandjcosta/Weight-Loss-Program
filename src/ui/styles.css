@@ -791,7 +791,6 @@ select:focus-visible {
   color: var(--text);
 }
 
-
 /* Alpha readability: tabular figures and visually subordinate units. */
 .metric strong,
 .entry > b,

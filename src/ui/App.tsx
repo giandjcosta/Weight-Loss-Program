@@ -208,7 +208,11 @@ function Row({
         <strong>{title}</strong>
         <small>{caption}</small>
       </div>
-      {amount && <b><MetricContent value={amount} /></b>}
+      {amount && (
+        <b>
+          <MetricContent value={amount} />
+        </b>
+      )}
       <div class="row-tools">
         {edit && (
           <button type="button" aria-label={'Modifica ' + title} onClick={edit}>
@@ -787,7 +791,9 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                       ].map((item) => (
                         <Card key={item[0]} className="metric">
                           <small>{item[0]}</small>
-                          <strong><MetricContent value={item[1]} /></strong>
+                          <strong>
+                            <MetricContent value={item[1]} />
+                          </strong>
                           <span>{item[2]}</span>
                         </Card>
                       ))}
@@ -1102,8 +1108,15 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                           />
                           <label class="form-field">
                             Se non conosci la tua altezza
-                            <select name="heightAnswer" defaultValue={data.profile.heightCm?.kind === 'unknown' ? 'unknown' : 'unchanged'}>
-                              <option value="unchanged">Lascia non specificato / non modificare</option>
+                            <select
+                              name="heightAnswer"
+                              defaultValue={
+                                data.profile.heightCm?.kind === 'unknown' ? 'unknown' : 'unchanged'
+                              }
+                            >
+                              <option value="unchanged">
+                                Lascia non specificato / non modificare
+                              </option>
                               <option value="unknown">Non lo so</option>
                             </select>
                           </label>
