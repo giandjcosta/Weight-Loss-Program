@@ -88,3 +88,26 @@ test('workout edit, reset, and demo-only storage work in desktop and mobile', as
   await expect(page.getByText('Sessione QA sintetica')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
 });
+
+
+test('the dialog traps keyboard focus, restores it on close and explains invalid weight in Italian', async ({ page }) => {
+  await page.goto('./');
+  const trigger = page.getByRole('button', { name: /Registra peso/ });
+  await trigger.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('input[name="day"]')).toBeFocused();
+
+  await dialog.getByRole('button', { name: 'Salva demo' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'Chiudi' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Salva demo' })).toBeFocused();
+
+  await dialog.locator('input[name="kg"]').fill('10');
+  await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('fuori dall');
+  await expect(dialog.getByRole('alert')).not.toContainText('validation.out_of_range');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
+});
