@@ -45,3 +45,16 @@
   - `saveSettings`/`saveProfile` now return `Result`;
   - meal `portion` and `nutritionSource` added; `FoodItem` type planned;
   - memory repo rebuilt on a shared `createRepository` + `StorageBackend`, with `putMany` and `bulk` events, so IndexedDB reuses the same rules.
+
+## 2026-11-14 — ChatGPT UI Alpha 0.1 Shell (draft)
+
+- Branch: `codex/ui-alpha-shell`, created from **exact foundation SHA** `a30d4dfee05aa6c1a44101673d5e85b449c0f19b`. Target PR base: `claude/foundation` (stacked; NO main merge).
+- Goal: replace the foundation placeholder with a responsive, real Preact UI powered by the shared `Repository` interface.
+- Paths: `src/ui/App.tsx`, `src/ui/model.ts`, `src/ui/model.test.ts`, `src/ui/styles.css`, brand wordmark assets, `src/ui/README.md`, `src/main.tsx`, `index.html`, `public/favicon.svg`, `tests/e2e/smoke.spec.ts`.
+- Features: desktop sidebar/mobile bottom nav, selected demo date, weight chart, add/edit/delete weights/meals/workouts, water quick-add/delete, nutrition completeness, historical goals, theme/profile/icon preference, handling of missing values, visible modal errors and explicit no-ETA placeholder.
+- Data/security: `createMemoryRepository({seed:createDemoDataset()})` **only**. All fixture data is fictional; writes are ephemeral and discarded on reload. `Repository.storage.synced=false`; no real-device persistent data, no HealthKit, no analytics, no remote API, no service-worker deployment.
+- Local checks: checked JSX/TS syntax on an earlier scratch UI prototype; this committed UI has **NOT** been independently compiled or browser-tested in this environment because repository dependencies cannot be downloaded here. Tests exist but **NOT RUN**. Claude must run `npm run check` (including Prettier formatting) / `npm run build` / `npm run e2e`, resolve TS/lint issues and review functionality before sign-off. Record real results, not inferred passing checks.
+- QA to complete: 320px / 360px / 390px / 1440px responsive screenshots, mobile keyboard / safe-area / touch, modal keyboard focus management, locale display, registration and reset, no console errors or horizontal overflow.
+- Deferred: integrate `claude/data-layer` **only when PR #8 safety blocker is closed**; first real-data mode requires reviewed backup/restore and an explicit opt-in. Make installable PWA manifest/SW in a separate reviewed PR; no auto-sync or unsupported HealthKit claims.
+- Next owner: Claude performs independent source review + compilation/tests + formatting; ChatGPT addresses findings in this branch. Owner controls any preview release.
+- **No merge or deploy of any kind until owner explicitly authorizes the specific operation with «Vai, pubblica».**

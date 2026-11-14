@@ -1,31 +1,16 @@
-/**
- * PLACEHOLDER entry point (foundation PR). ChatGPT/Codex replaces this with the real UI shell
- * in `src/ui/` (codex/ui-shell). It only proves the toolchain and the shared contracts work.
- */
+/** Ritmea Alpha 0.1 — an explicitly synthetic demo; not persistent personal storage. */
 import { render } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
-import { APP_NAME } from './core';
-import { createMemoryRepository } from './data/memoryRepository';
 import { createDemoDataset } from './data/fixtures/demo';
+import { createMemoryRepository } from './data/memoryRepository';
+import { App } from './ui/App';
 
-const repo = createMemoryRepository({ seed: createDemoDataset() });
+const mount = document.getElementById('app');
+if (!mount) throw new Error('Ritmea mount element is missing');
+const root: HTMLElement = mount;
 
-function FoundationCheck() {
-  const [count, setCount] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    void repo.list('weights').then((w) => setCount(w.length));
-  }, []);
-  return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, color: '#e9eeeb' }}>
-      <h1>{APP_NAME}</h1>
-      <p>Base tecnica pronta. L'interfaccia arriverà nella prossima PR.</p>
-      <p data-testid="demo-weights">
-        Pesate di esempio (dati inventati): {count === undefined ? '…' : count}
-      </p>
-      <p>I dati non sono sincronizzati tra dispositivi.</p>
-    </main>
-  );
+/** Reset replaces the whole ephemeral demo repository and remounts the view. */
+function start(): void {
+  const repository = createMemoryRepository({ seed: createDemoDataset() });
+  render(<App key={Date.now()} repository={repository} onReset={start} />, root);
 }
-
-document.body.style.background = '#171B1C';
-render(<FoundationCheck />, document.getElementById('app')!);
+start();
