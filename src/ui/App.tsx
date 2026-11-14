@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
 import {
   addDays,
@@ -15,6 +15,7 @@ import {
   type MealEntry,
   type WorkoutSession,
   type Result,
+  type Message,
 } from '../core';
 import { DEMO_DAYS, DEMO_START_DAY } from '../data/fixtures/demo';
 import {
@@ -60,9 +61,58 @@ function numeric(value: FormDataEntryValue | null, required = false): number | u
   if (!parsed.ok) throw Error('Numero non valido: usa, ad esempio, 75,2.');
   return parsed.value;
 }
+export function messageInItalian(error: Message): string {
+  switch (error.code) {
+    case 'validation.out_of_range':
+      return `Valore per ${error.args.field} fuori dall'intervallo consentito (${error.args.min}–${error.args.max} ${error.args.unit}).`;
+    case 'validation.required':
+      return `Compila il campo obbligatorio: ${error.args.field}.`;
+    case 'validation.not_a_number':
+      return 'Inserisci un numero valido.';
+    case 'validation.invalid_date':
+    case 'validation.future_date':
+      return 'Controlla la data inserita.';
+    case 'validation.inconsistent':
+      return 'Alcuni valori non sono coerenti: ' + error.args.fields.join(', ') + '.';
+    case 'validation.invalid_color':
+      return 'Inserisci un colore valido nel formato #RRGGBB.';
+    case 'repo.not_found':
+      return 'Registrazione non trovata. Aggiorna la pagina e riprova.';
+    case 'repo.append_only':
+      return 'Per cambiare un obiettivo, aggiungine uno nuovo senza modificare lo storico.';
+    case 'repo.storage_unavailable':
+      return 'Archivio non disponibile. Riprova o verifica lo spazio sul dispositivo.';
+    case 'repo.quota_exceeded':
+      return 'Spazio di archiviazione esaurito.';
+    case 'import.unsupported_format':
+      return 'Formato del file non supportato.';
+    case 'import.malformed':
+      return 'Il file contiene dati non validi.';
+    case 'import.duplicates_skipped':
+      return `${error.args.count} duplicati ignorati.`;
+    case 'import.invalid_skipped':
+      return `${error.args.count} righe non valide ignorate.`;
+    case 'calc.not_enough_readings':
+    case 'calc.span_too_short':
+    case 'calc.goal_missing':
+    case 'calc.inputs_missing':
+    case 'calc.not_applicable_for_direction':
+      return 'Dati insufficienti per questo calcolo.';
+  }
+}
 function check<T>(result: Result<T>): T {
-  if (!result.ok) throw Error('Non posso salvare: ' + result.error.code);
+  if (!result.ok) throw Error(messageInItalian(result.error));
   return result.value;
+}
+function MetricContent({ value }: { value: string }) {
+  const match = /^(.+?)\s(kg|kcal|ml)$/.exec(value);
+  return match ? (
+    <>
+      {match[1]} <span class="unit">{match[2]}</span>
+    </>
+  ) : (
+    <>{value}</>
+  );
 }
 function Card({ children, className = '' }: { children: ComponentChildren; className?: string }) {
   return <section class={'card ' + className}>{children}</section>;
@@ -158,7 +208,7 @@ function Row({
         <strong>{title}</strong>
         <small>{caption}</small>
       </div>
-      {amount && <b>{amount}</b>}
+      {amount && <b><MetricContent value={amount} /></b>}
       <div class="row-tools">
         {edit && (
           <button type="button" aria-label={'Modifica ' + title} onClick={edit}>
@@ -231,6 +281,33 @@ function DialogForm({
   save: (fd: FormData) => Promise<void>;
   error: string;
 }) {
+  const modalRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    modalRef.current?.querySelector<HTMLInputElement>('input[name="day"]')?.focus();
+    return () => {
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      }
+    };
+  }, []);
+  const trapTab = (event: KeyboardEvent) => {
+    if (event.key !== 'Tab') return;
+    const focusables = modalRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusables?.length) return;
+    const first = focusables.item(0);
+    const last = focusables.item(focusables.length - 1);
+    const active = document.activeElement;
+    if (event.shiftKey && (active === first || !modalRef.current?.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (active === last || !modalRef.current?.contains(active))) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
   const old = dialog.id
     ? dialog.kind === 'weight'
       ? data.weights.find((x) => x.id === dialog.id)
@@ -255,6 +332,8 @@ function DialogForm({
         aria-modal="true"
         aria-label={title}
         class="dialog"
+        ref={modalRef}
+        onKeyDown={trapTab}
         onClick={(e) => e.stopPropagation()}
       >
         <header>
@@ -571,10 +650,15 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
     await execute(async () => {
       const height = numeric(fd.get('height'));
       const displayName = String(fd.get('name') ?? '').trim();
+      const heightAnswer = String(fd.get('heightAnswer') ?? 'unchanged');
       check(
         await repository.saveProfile({
           displayName,
-          heightCm: height === undefined ? { kind: 'unknown' } : { kind: 'value', value: height },
+          ...(height !== undefined
+            ? { heightCm: { kind: 'value' as const, value: height } }
+            : heightAnswer === 'unknown'
+              ? { heightCm: { kind: 'unknown' as const } }
+              : {}),
         }),
       );
       const theme = String(fd.get('theme')) as 'dark' | 'light' | 'system';
@@ -703,7 +787,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                       ].map((item) => (
                         <Card key={item[0]} className="metric">
                           <small>{item[0]}</small>
-                          <strong>{item[1]}</strong>
+                          <strong><MetricContent value={item[1]} /></strong>
                           <span>{item[2]}</span>
                         </Card>
                       ))}
@@ -1008,7 +1092,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                             value={data.profile.displayName ?? ''}
                           />
                           <Field
-                            label="Altezza cm — lascia vuoto per «Non lo so»"
+                            label="Altezza cm — facoltativa"
                             name="height"
                             value={
                               data.profile.heightCm?.kind === 'value'
@@ -1016,6 +1100,13 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                                 : ''
                             }
                           />
+                          <label class="form-field">
+                            Se non conosci la tua altezza
+                            <select name="heightAnswer" defaultValue={data.profile.heightCm?.kind === 'unknown' ? 'unknown' : 'unchanged'}>
+                              <option value="unchanged">Lascia non specificato / non modificare</option>
+                              <option value="unknown">Non lo so</option>
+                            </select>
+                          </label>
                           <label class="form-field">
                             Tema
                             <select name="theme" defaultValue={data.settings.theme}>
