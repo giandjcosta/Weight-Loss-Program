@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, type DayKey, type TimeZone } from '../core';
+import { addDays, type DayKey, type TimeZone, type WorkoutSession } from '../core';
 import { createMemoryRepository } from '../data/memoryRepository';
 import { createDemoDataset, DEMO_DAYS, DEMO_START_DAY } from '../data/fixtures/demo';
-import { deriveDay, readSnapshot, statusDescription } from './model';
+import { deriveDay, readSnapshot, statusDescription, workoutEditPatch } from './model';
 
 const demoDay = addDays(DEMO_START_DAY, DEMO_DAYS - 1);
 const tz = 'Europe/Rome' as TimeZone;
@@ -63,5 +63,54 @@ describe('UI model: synthetic Repository integration', () => {
   it('does not offer progress without weight or goal', async () => {
     const repo = createMemoryRepository();
     expect(deriveDay(await readSnapshot(repo), demoDay).progressPercent).toBeUndefined();
+  });
+});
+
+describe('workoutEditPatch (Claude review of PR #10)', () => {
+  const base = {
+    id: '00000000-0000-4000-8000-000000000001',
+    schemaVersion: 1,
+    createdAt: '2026-10-14T19:00:00.000+02:00',
+    updatedAt: '2026-10-14T19:00:00.000+02:00',
+    source: { kind: 'demo' },
+    dayKey: '2026-10-14',
+    timeZone: 'Europe/Rome',
+    title: 'Lower body',
+    status: 'completed',
+    durationMin: 81,
+    exercises: [{ exerciseKey: 'leg-press', name: 'Leg press', sets: [{ reps: 8, loadKg: 60 }] }],
+    cardio: [
+      { kind: 'treadmill', minutes: 20, distanceKm: 2.4, inclinePercent: 5 },
+      { kind: 'bike', minutes: 10 },
+    ],
+  } as unknown as WorkoutSession;
+  const form = {
+    dayKey: '2026-10-14' as DayKey,
+    title: 'Lower body',
+    status: 'completed' as const,
+    durationMin: 85,
+    rescheduledTo: undefined,
+    treadmillMinutes: 25,
+  };
+
+  it('never touches stored exercises and keeps treadmill distance/incline and other cardio', () => {
+    const patch = workoutEditPatch(base, form);
+    expect('exercises' in patch).toBe(false);
+    expect(patch.cardio).toEqual([
+      { kind: 'bike', minutes: 10 },
+      { kind: 'treadmill', minutes: 25, distanceKm: 2.4, inclinePercent: 5 },
+    ]);
+  });
+
+  it('clears treadmill only when its field is emptied, and reschedule date unless rescheduled', () => {
+    const patch = workoutEditPatch(base, { ...form, treadmillMinutes: undefined });
+    expect(patch.cardio).toEqual([{ kind: 'bike', minutes: 10 }]);
+    expect(patch.rescheduledTo).toBeUndefined();
+    const moved = workoutEditPatch(base, {
+      ...form,
+      status: 'rescheduled',
+      rescheduledTo: '2026-10-16' as DayKey,
+    });
+    expect(moved.rescheduledTo).toBe('2026-10-16');
   });
 });

@@ -1,0 +1,48 @@
+# Ritmea Alpha 0.1 → GitHub Pages.
+# MANUAL ONLY: no push/PR trigger. Nothing is published until the owner, after «Vai, pubblica»,
+# (1) merges the reviewed PRs into main, (2) sets Settings → Pages → Source = "GitHub Actions",
+# (3) runs this workflow from the Actions tab on `main`.
+name: Ritmea Alpha — publish to GitHub Pages (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "Vai, pubblica" to confirm the owner approved this release'
+        required: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.confirm == 'Vai, pubblica' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
