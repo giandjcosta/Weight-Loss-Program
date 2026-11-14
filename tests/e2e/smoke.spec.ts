@@ -37,7 +37,7 @@ test('day change and adding water update the demo diary', async ({ page }) => {
 test('meal can be added, edited, and removed without losing unknown nutrients', async ({ page }) => {
   await page.goto('./');
   await page.locator('button[data-page="diary"]:visible').first().click();
-  await page.getByRole('button', { name: /Pasto/ }).click();
+  await page.getByRole('button', { name: '＋ Pasto', exact: true }).click();
 
   const dialog = page.getByRole('dialog');
   await dialog.locator('input[name="name"]').fill('Pasto QA sintetico');
