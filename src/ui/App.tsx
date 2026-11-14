@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import { addDays, deviceTimeZone, nowIso, parseDayKey, parseDecimal,
   type DayKey, type GoalDirection, type Id, type MealSlot, type Repository,
   type WeightEntry, type MealEntry, type WorkoutSession, type Result } from '../core';
@@ -33,10 +34,10 @@ function check<T>(result:Result<T>):T {
   if(!result.ok)throw Error('Non posso salvare: '+result.error.code);
   return result.value;
 }
-function Card({children,className=''}:{children:preact.ComponentChildren;className?:string}){
+function Card({children,className=''}:{children:ComponentChildren;className?:string}){
   return <section class={'card '+className}>{children}</section>;
 }
-function Header({title,detail,action}:{title:string;detail?:string;action?:preact.ComponentChildren}){
+function Header({title,detail,action}:{title:string;detail?:string;action?:ComponentChildren}){
   return <div class="card-head"><div><h2>{title}</h2>{detail && <p>{detail}</p>}</div>{action}</div>;
 }
 function NoData({label='Non ci sono registrazioni per questo giorno.'}:{label?:string}){
@@ -205,7 +206,7 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
     <div class="layout"><aside class="sidebar">
       <img class="logo" src={theme==='light'?logoLight:logoDark} alt="Ritmea"/>
       <span class="eyebrow">LA TUA AREA</span>
-      <nav class="nav" aria-label="Navigazione principale">{nav.map(item=><button key={item.id} onClick={()=>setPage(item.id)} aria-current={page===item.id?'page':undefined} class={page===item.id?'active':''}>
+      <nav class="nav" aria-label="Navigazione principale">{nav.map(item=><button data-page={item.id} key={item.id} onClick={()=>setPage(item.id)} aria-current={page===item.id?'page':undefined} class={page===item.id?'active':''}>
         <span aria-hidden="true">{item.icon}</span>{item.label}</button>)}</nav>
       <div class="sidebar-note"><strong>ALPHA 0.1 · DEMO</strong><p>Solo dati sintetici. Nessun salvataggio permanente o sincronizzazione.</p></div>
     </aside><div class="main">
@@ -268,7 +269,7 @@ export function App({repository,onReset}:{repository:Repository;onReset:()=>void
             <Card><Header title="Privacy e ripristino"/><div class="quiet"><b>Modalità demo in memoria</b><p>Non inserire dati reali. La demo non sincronizza, non conserva informazioni dopo il ricaricamento e non attiva HealthKit, IndexedDB o backup.</p></div>
               <button class="btn soft full" onClick={reset}>↻ Ripristina dati demo</button><button class="btn soft full" onClick={()=>open('goal')}>＋ Aggiungi un nuovo obiettivo</button></Card></div></div>}
       </>}</main></div></div>
-      <nav class="mobile-nav" aria-label="Navigazione mobile">{nav.map(item=><button key={item.id} onClick={()=>setPage(item.id)} aria-current={page===item.id?'page':undefined} class={page===item.id?'active':''}><span aria-hidden="true">{item.icon}</span><small>{item.short}</small></button>)}</nav>
+      <nav class="mobile-nav" aria-label="Navigazione mobile">{nav.map(item=><button data-page={item.id} key={item.id} onClick={()=>setPage(item.id)} aria-current={page===item.id?'page':undefined} class={page===item.id?'active':''}><span aria-hidden="true">{item.icon}</span><small>{item.short}</small></button>)}</nav>
       {dialog&&data&&<DialogForm key={dialog.kind+String(dialog.id??'new')} dialog={dialog} data={data} day={day} close={()=>setDialog(undefined)} save={save}/>}
       {busy&&<div class="saving" role="status">Salvataggio demo…</div>}
     </div>;
