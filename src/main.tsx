@@ -6,10 +6,11 @@ import { App } from './ui/App';
 
 const mount = document.getElementById('app');
 if (!mount) throw new Error('Ritmea mount element is missing');
+const root: HTMLElement = mount;
 
 /** Reset replaces the whole ephemeral demo repository and remounts the view. */
 function start(): void {
   const repository = createMemoryRepository({ seed: createDemoDataset() });
-  render(<App key={Date.now()} repository={repository} onReset={start} />, mount!);
+  render(<App key={Date.now()} repository={repository} onReset={start} />, root);
 }
 start();
