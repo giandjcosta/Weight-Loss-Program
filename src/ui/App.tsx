@@ -23,6 +23,9 @@ import {
   formatDay,
   formatValue,
   statusDescription,
+  DIRECTION_LABEL,
+  WORKOUT_STATUS_LABEL,
+  workoutEditPatch,
   type UiSnapshot,
 } from './model';
 import logoDark from './assets/ritmea-logo-dark.svg';
@@ -454,9 +457,10 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
       if (dialog.kind === 'weight') {
         const kg = numeric(fd.get('kg'), true);
         if (kg === undefined) throw Error('Inserisci un peso valido.');
-        const note = String(fd.get('note') ?? '').trim();
+        const noteText = String(fd.get('note') ?? '').trim();
+        const note = noteText === '' ? undefined : noteText; // empty note = no note, not ''
         if (dialog.id)
-          check(await repository.update('weights', dialog.id, { dayKey: date, kg, note }));
+          check(await repository.update('weights', dialog.id, { dayKey: date, kg, note } as never));
         else
           check(
             await repository.add('weights', {
@@ -464,7 +468,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
               timeZone: deviceTimeZone(),
               kg,
               quality: 'measured',
-              note,
+              ...(note === undefined ? {} : { note }),
               source,
             }),
           );
@@ -527,15 +531,20 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
           ...(durationMin === undefined ? {} : { durationMin }),
           ...(status === 'rescheduled' && rescheduledTo ? { rescheduledTo } : {}),
         };
-        if (dialog.id)
-          check(
-            await repository.update('workouts', dialog.id, {
-              ...fields,
-              ...(durationMin === undefined ? { durationMin: undefined } : {}),
-              ...(status !== 'rescheduled' ? { rescheduledTo: undefined } : {}),
-            } as never),
-          );
-        else
+        if (dialog.id) {
+          const current = await repository.get('workouts', dialog.id);
+          if (!current) throw Error('Allenamento non trovato.');
+          // keep stored exercises/sets and treadmill distance/incline (not in this form)
+          const patch = workoutEditPatch(current, {
+            dayKey: date,
+            title,
+            status,
+            durationMin,
+            rescheduledTo,
+            treadmillMinutes: treadmill,
+          });
+          check(await repository.update('workouts', dialog.id, patch as never));
+        } else
           check(
             await repository.add('workouts', { ...fields, timeZone: deviceTimeZone(), source }),
           );
@@ -677,7 +686,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                         [
                           'OBIETTIVO',
                           formatValue(view.goal?.targetKg) + ' kg',
-                          view.goal?.direction ?? unknown,
+                          (view.goal ? DIRECTION_LABEL[view.goal.direction] : undefined) ?? unknown,
                         ],
                         [
                           'CALORIE REGISTRATE',
@@ -919,7 +928,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                           <Row
                             key={w.id}
                             title={w.title}
-                            caption={formatDay(w.dayKey) + ' · ' + w.status}
+                            caption={formatDay(w.dayKey) + ' · ' + WORKOUT_STATUS_LABEL[w.status]}
                             amount={
                               w.durationMin === undefined ? undefined : w.durationMin + ' min'
                             }

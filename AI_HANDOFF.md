@@ -58,3 +58,13 @@
 - Deferred: integrate `claude/data-layer` **only when PR #8 safety blocker is closed**; first real-data mode requires reviewed backup/restore and an explicit opt-in. Make installable PWA manifest/SW in a separate reviewed PR; no auto-sync or unsupported HealthKit claims.
 - Next owner: Claude performs independent source review + compilation/tests + formatting; ChatGPT addresses findings in this branch. Owner controls any preview release.
 - **No merge or deploy of any kind until owner explicitly authorizes the specific operation with «Vai, pubblica».**
+
+## 2026-11-14 — Claude review of PR #10 + Alpha publishing prep
+- Branch / PR: `claude/alpha-review` (draft) on top of `codex/ui-alpha-shell` (PR #10 head `802e646`); ChatGPT's commits untouched.
+- Fixes:
+  - editing a workout no longer wipes stored exercises or treadmill distance/incline (`workoutEditPatch`, unit-tested);
+  - empty weight notes are omitted instead of stored as `''`;
+  - goal direction and workout status are shown in Italian.
+- Publishing (prepared, NOT enabled): manual-only `.github/workflows/pages-alpha.yml` (runs only on `main` with the confirmation input "Vai, pubblica"), `public/manifest.webmanifest`, icons, `apple-touch-icon`; see `docs/PUBLISHING.md`.
+- IndexedDB compatibility: trial merge with PR #8 → 166 unit tests + 10 e2e pass. The UI e2e suite also passes with the app running on `openIndexedDbRepository` (temporary entry point, not committed).
+- Tests on this branch: `npm run check` 89 passed; `npm run build` OK; `npm run e2e` 8 passed.
