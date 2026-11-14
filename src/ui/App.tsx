@@ -792,7 +792,7 @@ export function App({ repository, onReset }: { repository: Repository; onReset: 
                         <Card key={item[0]} className="metric">
                           <small>{item[0]}</small>
                           <strong>
-                            <MetricContent value={item[1]} />
+                            <MetricContent value={item[1] ?? '—'} />
                           </strong>
                           <span>{item[2]}</span>
                         </Card>
