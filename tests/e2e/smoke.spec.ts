@@ -68,12 +68,14 @@ test('workout edit, reset, and demo-only storage work in desktop and mobile', as
   await dialog.locator('input[name="title"]').fill('Sessione QA sintetica');
   await dialog.locator('input[name="duration"]').fill('42');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
 
   const entry = page.locator('.entry').filter({ hasText: 'Sessione QA sintetica' });
   await expect(entry).toContainText('42 min');
   await page.getByRole('button', { name: 'Modifica Sessione QA sintetica' }).click();
   await dialog.locator('input[name="duration"]').fill('50');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
   await expect(entry).toContainText('50 min');
 
   await page.locator('button[data-page="settings"]:visible').first().click();
