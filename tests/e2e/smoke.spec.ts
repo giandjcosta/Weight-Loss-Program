@@ -42,7 +42,9 @@ test('meal can be added, edited, and removed without losing unknown nutrients', 
 
   const dialog = page.getByRole('dialog');
   await dialog.locator('input[name="name"]').fill('Pasto QA sintetico');
+  await dialog.locator('select[name="slot"]').selectOption('lunch');
   await dialog.locator('input[name="kcal"]').fill('650');
+  await expect(dialog.locator('input[name="kcal"]')).toHaveValue('650');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
   await expect(dialog).toBeHidden();
 
@@ -51,6 +53,7 @@ test('meal can be added, edited, and removed without losing unknown nutrients', 
   await page.getByRole('button', { name: 'Modifica Pasto QA sintetico' }).click();
   await dialog.locator('input[name="kcal"]').fill('');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
   await expect(entry).toContainText('kcal non indicate');
 
   page.once('dialog', async (confirmation) => confirmation.accept());
@@ -68,12 +71,14 @@ test('workout edit, reset, and demo-only storage work in desktop and mobile', as
   await dialog.locator('input[name="title"]').fill('Sessione QA sintetica');
   await dialog.locator('input[name="duration"]').fill('42');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
 
   const entry = page.locator('.entry').filter({ hasText: 'Sessione QA sintetica' });
   await expect(entry).toContainText('42 min');
   await page.getByRole('button', { name: 'Modifica Sessione QA sintetica' }).click();
   await dialog.locator('input[name="duration"]').fill('50');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
   await expect(entry).toContainText('50 min');
 
   await page.locator('button[data-page="settings"]:visible').first().click();
@@ -87,4 +92,28 @@ test('workout edit, reset, and demo-only storage work in desktop and mobile', as
   await page.locator('button[data-page="training"]:visible').first().click();
   await expect(page.getByText('Sessione QA sintetica')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+});
+
+test('the dialog traps keyboard focus, restores it on close and explains invalid weight in Italian', async ({
+  page,
+}) => {
+  await page.goto('./');
+  const trigger = page.getByRole('button', { name: /Registra peso/ });
+  await trigger.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('input[name="day"]')).toBeFocused();
+
+  await dialog.getByRole('button', { name: 'Salva demo' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('button', { name: 'Chiudi' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(dialog.getByRole('button', { name: 'Salva demo' })).toBeFocused();
+
+  await dialog.locator('input[name="kg"]').fill('10');
+  await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('fuori dall');
+  await expect(dialog.getByRole('alert')).not.toContainText('validation.out_of_range');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(trigger).toBeFocused();
 });

@@ -1,4 +1,5 @@
 /** Ritmea Alpha 0.1 — an explicitly synthetic demo; not persistent personal storage. */
+import '@fontsource-variable/inter/wght.css';
 import { render } from 'preact';
 import { createDemoDataset } from './data/fixtures/demo';
 import { createMemoryRepository } from './data/memoryRepository';
