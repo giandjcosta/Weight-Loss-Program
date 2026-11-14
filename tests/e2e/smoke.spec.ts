@@ -42,7 +42,9 @@ test('meal can be added, edited, and removed without losing unknown nutrients', 
 
   const dialog = page.getByRole('dialog');
   await dialog.locator('input[name="name"]').fill('Pasto QA sintetico');
+  await dialog.locator('select[name="slot"]').selectOption('lunch');
   await dialog.locator('input[name="kcal"]').fill('650');
+  await expect(dialog.locator('input[name="kcal"]')).toHaveValue('650');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
   await expect(dialog).toBeHidden();
 
@@ -51,6 +53,7 @@ test('meal can be added, edited, and removed without losing unknown nutrients', 
   await page.getByRole('button', { name: 'Modifica Pasto QA sintetico' }).click();
   await dialog.locator('input[name="kcal"]').fill('');
   await dialog.getByRole('button', { name: 'Salva demo' }).click();
+  await expect(dialog).toBeHidden();
   await expect(entry).toContainText('kcal non indicate');
 
   page.once('dialog', async (confirmation) => confirmation.accept());
