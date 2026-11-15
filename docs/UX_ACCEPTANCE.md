@@ -21,7 +21,7 @@
 ## Dashboard, progress and forecasts
 
 - Show dated latest **recorded** weight, starting weight, selected goal, direction-specific progress. Empty state is **“Nessuna pesata ancora”**, not 0 kg.
-- Weight graph shows **actual samples** and separate rolling seven-day averages over *available* samples; never fill gaps with zero values. Accessible summary/table, clear measurement vs estimate vs import status, local date display.
+- Weight graph shows **actual samples** and separate rolling seven-day averages over _available_ samples; never fill gaps with zero values. Accessible summary/table, clear measurement vs estimate vs import status, local date display.
 - For loss/gain, progress is direction-aware and visually bounded at 0–100% while overshoot is described separately. For maintenance, show band adherence; for recomposition, weight-only progress may be not applicable.
 - Keep two distinct goal time estimates: (1) editable weekly-rate **scenario** at onboarding, labelled as hypothetical date range, NOT a forecast; (2) **observed-trend** ETA only with sufficient longitudinal samples, otherwise typed insufficient-data state.
 - Food, water and workout cards distinguish **unlogged**, **partial**, **complete** and **imported**; unlogged meals are never zero-consumption days; duplicate sources must not be double-counted.
